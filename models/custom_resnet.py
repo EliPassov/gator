@@ -177,16 +177,16 @@ def filter_mapping_from_default_resnet(net):
     return channels_config
 
 
-def custom_resnet_18(channels_config):
-    return CustomResNet(CustomBasicBlock, channels_config)
+def custom_resnet_18(channels_config, num_channels=10):
+    return CustomResNet(CustomBasicBlock, channels_config, num_channels)
 
 
-def custom_resnet_34(channels_config):
-    return CustomResNet(CustomBasicBlock, channels_config)
+def custom_resnet_34(channels_config, num_channels=10):
+    return CustomResNet(CustomBasicBlock, channels_config, num_channels)
 
 
-def custom_resnet_50(channels_config):
-    return CustomResNet(CustomBottleNeck, channels_config)
+def custom_resnet_50(channels_config, num_channels=10):
+    return CustomResNet(CustomBottleNeck, channels_config, num_channels)
 
 
 if __name__ == '__main__':

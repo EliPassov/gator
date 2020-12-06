@@ -91,7 +91,7 @@ class CIFARDataset(Dataset):
 
     def __getitem__(self, item):
         img = self.transform(Image.fromarray(self.images[item].transpose(1,2,0),'RGB'))
-        return item, img, self.labels[item]
+        return img, self.labels[item]
 
 
 class PetsDataset(Dataset):
@@ -113,7 +113,7 @@ class PetsDataset(Dataset):
         img = Image.open(image_path)
         img = self.transform(img)
         target = self.classes[item]
-        return image_path, img, target
+        return img, target
 
 
 class FolderPerClassFilePathDataset(Dataset):
@@ -135,7 +135,7 @@ class FolderPerClassFilePathDataset(Dataset):
         img = Image.open(image_path)
         img = self.transform(img)
         target = self.classes[item] - 1
-        return image_path, img, target
+        return img, target
 
 
 class SoftTargetDatasetWrapper(Dataset):

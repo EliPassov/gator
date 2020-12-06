@@ -25,7 +25,9 @@ from tensorboardX import SummaryWriter
 
 from data.dataset_factory import get_train_test_datasets
 from models.custom_resnet import custom_resnet_50
+from models.vgg_fully_convolutional import *
 from models.wrapped_gated_models import *
+
 
 
 model_names = sorted(name for name in models.__dict__
@@ -110,7 +112,7 @@ best_acc1 = 0
 
 
 CUSTOM_MODELS = {'CustomResNet50': custom_resnet_50}
-
+DATASET_NUM_CLASSES = {'imagenet':1000, 'cifar10':10, 'cifar100':100}
 
 def main():
     args = parser.parse_args()
@@ -173,26 +175,25 @@ def main_worker(gpu, ngpus_per_node, args):
                                 world_size=args.world_size, rank=args.rank)
     # create model
     criterion = None
+    num_classes = DATASET_NUM_CLASSES[args.dataset_name]
     if args.custom_model:
         print("=> creating custom model '{}'".format(args.custom_model))
-        model_constructor_call = CUSTOM_MODELS[args.custom_model]
         if args.custom_model == 'CustomResNet50':
             assert args.resume is not None
             channels_config = torch.load(args.resume)['channels_config']
-            model_constructor_call = partial(model_constructor_call, channels_config=channels_config)
-        if args.custom_model == 'SEResNet50'and not args.pretrained:
-                model_constructor_call = partial(model_constructor_call, pretrained=None)
-        model = model_constructor_call()
+            model = custom_resnet_50(channels_config, num_classes)
+        elif 'vgg' in args.custom_model.lower():
+            model = VGGFullyConv(args.custom_model, num_classes)
     elif args.net_with_criterion:
         print("=> creating custom model with criterion'{}'".format(args.net_with_criterion))
-        model, criterion = globals()[args.net_with_criterion](1000)
+        model, criterion = globals()[args.net_with_criterion](num_classes)
     else:
         if args.pretrained:
             print("=> using pre-trained model '{}'".format(args.arch))
-            model = models.__dict__[args.arch](pretrained=True)
+            model = models.__dict__[args.arch](pretrained=True, num_classes=num_classes)
         else:
             print("=> creating model '{}'".format(args.arch))
-            model = models.__dict__[args.arch]()
+            model = models.__dict__[args.arch](num_classes=num_classes)
 
     if args.subdivision > 1:
         assert args.batch_size % args.subdivision == 0
