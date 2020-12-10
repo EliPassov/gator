@@ -15,6 +15,32 @@ class OutputHook(BaseHook):
         self.output = output
 
 
+class ClassificationLayerHook(OutputHook):
+    def __init__(self, module, channels, num_classes, confidence=False):
+        super(BaseHook, self).__init__()
+        self.hook = module.register_forward_hook(self.hook_output)
+        self.confidence = confidence
+        self.bn = nn.BatchNorm2d(channels)
+        self.relu = nn.ReLU(inplace=True)
+        self.average_pool = lambda x:x.mean(-1).mean(-1)
+        self.fc = nn.Linear(channels, num_classes + (1 if confidence else 0))
+        self.softmax = nn.Softmax(1)
+        if confidence:
+            self.sigmoid = nn.Sigmoid()
+
+    def hook_output(self, module, input, output):
+        output = self.fc(self.average_pool(self.relu(self.bn(input))))
+        if self.confidence:
+            # sigmoid is performed in place which messes up the backprop, hence the creation of a new variable
+            out = torch.zeros_like(output, device=output.device)
+            out[:, :-1] = self.softmax(output[:, :-1])
+            out[:,-1] = self.sigmoid(output[:,-1])
+            self.output = out
+        else:
+            output = self.softmax(output)
+            self.output = output
+
+
 class NetWithAuxiliaryOutputs(nn.Module):
     """ A module holding a main module and any related hooks which have an output for loss/reporting purposes"""
     def __init__(self, net, forward_hooks):

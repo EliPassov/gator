@@ -177,19 +177,23 @@ def filter_mapping_from_default_resnet(net):
     return channels_config
 
 
-def custom_resnet_18(channels_config, num_channels=10):
-    return CustomResNet(CustomBasicBlock, channels_config, num_channels)
+def custom_resnet_18(channels_config, num_classes=1000):
+    return CustomResNet(CustomBasicBlock, channels_config, num_classes)
 
 
-def custom_resnet_34(channels_config, num_channels=10):
-    return CustomResNet(CustomBasicBlock, channels_config, num_channels)
+def custom_resnet_34(channels_config, num_classes=1000):
+    return CustomResNet(CustomBasicBlock, channels_config, num_classes)
 
 
-def custom_resnet_50(channels_config, num_channels=10):
-    return CustomResNet(CustomBottleNeck, channels_config, num_channels)
+def custom_resnet_50(channels_config, num_classes=1000):
+    return CustomResNet(CustomBottleNeck, channels_config, num_classes)
 
 
 if __name__ == '__main__':
+    # import torch
+    # channels_config = torch.load('/home/eli/Eli/Training/Imagenet/resnet50/resnet50_pre_0_995_w_0_25_gm_0_2_w_0_5/net_e_80_custom_resnet')['channels_config']
+    # custom_net = custom_resnet_50(channels_config, num_classes=1000).cuda()
+
     net = resnet50(False)
     channels_config = filter_mapping_from_default_resnet(net)
     custom_net = custom_resnet_50(channels_config)

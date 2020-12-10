@@ -1,13 +1,14 @@
-import pandas as pd
+from copy import deepcopy
 
+import pandas as pd
 import torch
 from torch import nn
 from torchvision.models.resnet import ResNet, resnet18, resnet34, resnet50
 
 from models.channel_gates import ModuleChannelsLogisticGating, ModuleChannelsLogisticGatingMasked
-from models.gate_wrapped_module import create_wrapped_net
+from models.gate_wrapped_module import create_wrapped_net, create_conv_channels_dict
 from models.gates_mapper import NaiveSequentialGatesModulesMapper, ResNetGatesModulesMapper
-from models.net_auxiliary_extension import NetWithAuxiliaryOutputs, CriterionWithAuxiliaryLosses
+from models.net_auxiliary_extension import NetWithAuxiliaryOutputs, CriterionWithAuxiliaryLosses, ClassificationLayerHook
 
 
 def channel_gating_reporting(layer, input):
@@ -19,7 +20,8 @@ def channel_gating_reporting(layer, input):
 def get_wrapped_gating_net_and_criteria(net, main_criterion, criteria_weight, gradient_multiplier=1.0, adaptive=True,
                                         gating_class=ModuleChannelsLogisticGatingMasked, gate_init_prob=0.99,
                                         random_init=False, factor_type='flop_factor', no_last_conv=False,
-                                        edge_multipliers_csv_path=None, gradient_multipliers_csv_path=None):
+                                        edge_multipliers_csv_path=None, gradient_multipliers_csv_path=None,
+                                        aux_classification_losses_modules=None, aux_classification_losses_weights=None):
     edge_multipliers = None
     if edge_multipliers_csv_path is not None:
         edge_multipliers = pd.read_csv(edge_multipliers_csv_path, index_col=None, header=None).values
@@ -39,11 +41,50 @@ def get_wrapped_gating_net_and_criteria(net, main_criterion, criteria_weight, gr
                                                    gating_class, gate_init_prob, random_init, factor_type,
                                                    edge_multipliers, gradient_secondary_multipliers)
 
+    # if aux_classification_losses_modules is not None:
+    #     # combine weights to one list
+    #     if isinstance(aux_classification_losses_weights, float):
+    #         aux_classification_losses_weights = \
+    #             [aux_classification_losses_weights for _ in range(len(aux_classification_losses_modules))]
+    #     else:
+    #         assert isinstance(aux_classification_losses_weights, list) and \
+    #                len(aux_classification_losses_weights) == len(aux_classification_losses_modules)
+    #     if isinstance(criteria_weight, float):
+    #         criteria_weight = [criteria_weight for _ in range(len(hooks))]
+    #
+    #     criteria_weight = criteria_weight + aux_classification_losses_weights
+    #
+    #     # create additional hooks
+    #     net_children = {k:v for k,v in net.named_modules()}
+    #     aux_hooks = []
+    #     for i, (module_name, c) in enumerate(aux_classification_losses_modules):
+    #         module = net_children[module_name]
+    #         aux_hooks.append(ClassificationLayerHook(module, c, aux_classification_losses_weights[i]))
+    #
+    #     aux_losses = [nn.CrossEntropyLoss() for _ in range(len(aux_hooks))]
+    #     hooks.extend(aux_hooks)
+    #     auxiliary_criteria.extend(aux_losses)
+
     report_func = channel_gating_reporting
 
     criterion = CriterionWithAuxiliaryLosses(main_criterion, auxiliary_criteria, criteria_weight, False, report_func)
     net_with_aux = NetWithAuxiliaryOutputs(net, hooks)
     return net_with_aux, criterion
+
+
+def custom_resnet_from_gated_net(net_name, net_weight_path, new_file_path, no_last_conv=False):
+    net, _ = globals()[net_name](1000)
+    full_state_dict = torch.load(net_weight_path)
+    weights_state_dict = {k[7:]: v for k, v in full_state_dict['state_dict'].items()}
+    net.load_state_dict(weights_state_dict)
+    mapper = ResNetGatesModulesMapper(net.net, no_last_conv, map_for_replacement=True)
+    channels_config, new_weights_state_dict = create_conv_channels_dict(net, mapper)
+
+    new_state_dict = deepcopy(full_state_dict)
+    del new_state_dict['optimizer']
+    new_state_dict['channels_config'] = channels_config
+    new_state_dict['state_dict'] = {'module.' + k:v for k,v in new_weights_state_dict.items()}
+    torch.save(new_state_dict, new_file_path)
 
 
 ResNet18_gating = lambda classes:get_wrapped_gating_net_and_criteria(
@@ -54,6 +95,11 @@ ResNet34_gating = lambda classes:get_wrapped_gating_net_and_criteria(
 
 ResNet50_gating = lambda classes:get_wrapped_gating_net_and_criteria(
     resnet50(True), nn.CrossEntropyLoss(), 0.2, gradient_multiplier=0.2, gate_init_prob=0.995)
+
+# ResNet50_gating = lambda classes:get_wrapped_gating_net_and_criteria(
+#     resnet50(True), nn.CrossEntropyLoss(), 0.2, gradient_multiplier=0.2, gate_init_prob=0.995,
+#     aux_classification_losses_modules = [], aux_classification_losses_weights=[])
+
 
 ResNet50_gating_custom = lambda classes:get_wrapped_gating_net_and_criteria(
     resnet50(True), nn.CrossEntropyLoss(), 0.5, gradient_multiplier=0.2, gate_init_prob=0.995
