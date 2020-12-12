@@ -34,12 +34,16 @@ def get_wrapped_gating_net_and_criteria(net, main_criterion, criteria_weight, gr
         gradient_secondary_multipliers = pd.read_csv(gradient_multipliers_csv_path, index_col=None, header=None)\
             .values.reshape(-1).tolist()
 
-
     mapper_class = ResNetGatesModulesMapper if isinstance(net, ResNet) else NaiveSequentialGatesModulesMapper
 
-    hooks, auxiliary_criteria = create_wrapped_net(mapper_class(net, no_last_conv), gradient_multiplier, adaptive,
-                                                   gating_class, gate_init_prob, random_init, factor_type,
-                                                   edge_multipliers, gradient_secondary_multipliers)
+    hooks, auxiliary_criteria, param_groups_lr_adjustment_map = create_wrapped_net(mapper_class(net, no_last_conv),
+        gradient_multiplier, adaptive, gating_class, gate_init_prob, random_init, factor_type, edge_multipliers,
+        gradient_secondary_multipliers, create_multiple_optimizers=True)
+
+    if param_groups_lr_adjustment_map is not None:
+        param_groups_lr, adjustmet_map = param_groups_lr_adjustment_map
+        param_groups_lr.insert(0, {'params': net.parameters()})
+        param_groups_lr_adjustment_map = param_groups_lr, adjustmet_map
 
     # if aux_classification_losses_modules is not None:
     #     # combine weights to one list
@@ -69,7 +73,7 @@ def get_wrapped_gating_net_and_criteria(net, main_criterion, criteria_weight, gr
 
     criterion = CriterionWithAuxiliaryLosses(main_criterion, auxiliary_criteria, criteria_weight, False, report_func)
     net_with_aux = NetWithAuxiliaryOutputs(net, hooks)
-    return net_with_aux, criterion
+    return net_with_aux, criterion, param_groups_lr_adjustment_map
 
 
 def custom_resnet_from_gated_net(net_name, net_weight_path, new_file_path, no_last_conv=False):

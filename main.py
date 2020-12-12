@@ -27,7 +27,7 @@ from data.dataset_factory import get_train_test_datasets
 from models.custom_resnet import custom_resnet_50
 from models.vgg_fully_convolutional import *
 from models.wrapped_gated_models import *
-
+from utils.multi_optimizer import MultiGroupDynamicLROptimizer
 
 
 model_names = sorted(name for name in models.__dict__
@@ -174,7 +174,7 @@ def main_worker(gpu, ngpus_per_node, args):
         dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
                                 world_size=args.world_size, rank=args.rank)
     # create model
-    criterion = None
+    criterion, param_groups_lr_adjustment_map = None, None
     num_classes = DATASET_NUM_CLASSES[args.dataset_name]
     if args.custom_model:
         print("=> creating custom model '{}'".format(args.custom_model))
@@ -186,7 +186,7 @@ def main_worker(gpu, ngpus_per_node, args):
             model = VGGFullyConv(args.custom_model, num_classes)
     elif args.net_with_criterion:
         print("=> creating custom model with criterion'{}'".format(args.net_with_criterion))
-        model, criterion = globals()[args.net_with_criterion](num_classes)
+        model, criterion, param_groups_lr_adjustment_map = globals()[args.net_with_criterion](num_classes)
     else:
         if args.pretrained:
             print("=> using pre-trained model '{}'".format(args.arch))
@@ -233,9 +233,13 @@ def main_worker(gpu, ngpus_per_node, args):
         criterion = nn.CrossEntropyLoss()
     criterion = criterion.cuda(args.gpu)
 
-    optimizer = torch.optim.SGD(model.parameters(), args.lr,
-                                momentum=args.momentum,
-                                weight_decay=args.weight_decay)
+    if param_groups_lr_adjustment_map is not None:
+        inner_optimizer = torch.optim.SGD(param_groups_lr_adjustment_map[0], args.lr, momentum=args.momentum,
+                                          weight_decay=args.weight_decay, nesterov=args.nesterov)
+        optimizer = MultiGroupDynamicLROptimizer(inner_optimizer, param_groups_lr_adjustment_map[1])
+    else:
+        optimizer = torch.optim.SGD(model.parameters(), args.lr, momentum=args.momentum, weight_decay=args.weight_decay,
+                                    nesterov=args.nesterov)
 
     # optionally resume from a checkpoint
     if args.resume:
