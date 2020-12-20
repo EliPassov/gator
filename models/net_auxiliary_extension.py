@@ -12,7 +12,11 @@ class OutputHook(BaseHook):
         self.hook = module.register_forward_hook(self.hook_output)
 
     def hook_output(self, module, input, output):
-        self.output = output
+        self.inner_output = output
+
+    @property
+    def output(self):
+        return self.inner_output
 
 
 class ClassificationLayerHook(OutputHook):
@@ -29,16 +33,16 @@ class ClassificationLayerHook(OutputHook):
             self.sigmoid = nn.Sigmoid()
 
     def hook_output(self, module, input, output):
-        output = self.fc(self.average_pool(self.relu(self.bn(input))))
+        module_output = self.fc(self.average_pool(self.relu(self.bn(output))))
         if self.confidence:
             # sigmoid is performed in place which messes up the backprop, hence the creation of a new variable
-            out = torch.zeros_like(output, device=output.device)
-            out[:, :-1] = self.softmax(output[:, :-1])
-            out[:,-1] = self.sigmoid(output[:,-1])
-            self.output = out
+            out = torch.zeros_like(module_output, device=module_output.device)
+            out[:, :-1] = self.softmax(module_output[:, :-1])
+            out[:,-1] = self.sigmoid(module_output[:,-1])
+            self.inner_output = out
         else:
-            output = self.softmax(output)
-            self.output = output
+            module_output = self.softmax(module_output)
+            self.inner_output = module_output
 
 
 class NetWithAuxiliaryOutputs(nn.Module):
@@ -46,8 +50,8 @@ class NetWithAuxiliaryOutputs(nn.Module):
     def __init__(self, net, forward_hooks):
         super(NetWithAuxiliaryOutputs, self).__init__()
         self.net = net
-        for forward_hook in forward_hooks:
-            assert hasattr(forward_hook, 'output')
+        # for forward_hook in forward_hooks:
+        #     assert hasattr(forward_hook, 'output')
             # assert isinstance(forward_hook, OutputHook)
         # Assures learning for parameters inside hook
         self.forward_hooks = nn.ModuleList(forward_hooks)
@@ -136,7 +140,7 @@ class CriterionWithAuxiliaryLosses(nn.Module):
 
             result['report'] = {}
             for i in range(len(report_inputs)):
-                report_dic = report_function[i](i, report_inputs[i])
+                report_dic = report_function[i](i, report_inputs[i], target)
                 result['report'].update(report_dic)
 
         auxiliary_losses = [self.auxiliary_multipliers[i] * auxiliary_loss_outputs[i] for i in range(len(auxiliary_loss_outputs))]

@@ -1,0 +1,7 @@
+{
+  "aux_classification_losses_modules":[
+    { "module": "layer2", "channels":512},
+    { "module": "layer3", "channels":1024}
+  ],
+  "aux_classification_losses_weights":[0.3, 0.5]
+}
