@@ -38,7 +38,7 @@ def get_wrapped_gating_net_and_criteria(net, main_criterion, criteria_weight, gr
 
     hooks, auxiliary_criteria, param_groups_lr_adjustment_map = create_wrapped_net(mapper_class(net, no_last_conv),
         gradient_multiplier, adaptive, gating_class, gate_init_prob, random_init, factor_type, edge_multipliers,
-        gradient_secondary_multipliers, create_multiple_optimizers=False)
+        gradient_secondary_multipliers, create_multiple_optimizers=True)
 
     if param_groups_lr_adjustment_map is not None:
         param_groups_lr, adjustmet_map = param_groups_lr_adjustment_map
@@ -105,7 +105,7 @@ ResNet34_gating = lambda classes:get_wrapped_gating_net_and_criteria(
     resnet34(True), nn.CrossEntropyLoss(), 0.2)
 
 ResNet50_gating = lambda classes:get_wrapped_gating_net_and_criteria(
-    resnet50(True), nn.CrossEntropyLoss(), 1, gradient_multiplier=0.2, gate_init_prob=0.995)
+    resnet50(True), nn.CrossEntropyLoss(), 0.25, gradient_multiplier=0.2, gate_init_prob=0.995)
 
 # ResNet50_gating = lambda classes:get_wrapped_gating_net_and_criteria(
 #     resnet50(True), nn.CrossEntropyLoss(), 0.2, gradient_multiplier=0.2, gate_init_prob=0.995,
