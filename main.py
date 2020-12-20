@@ -2,6 +2,7 @@ import argparse
 from collections import OrderedDict
 from datetime import datetime as dtm
 from functools import partial
+import json
 import os
 import random
 import shutil
@@ -106,6 +107,8 @@ parser.add_argument('--create_old_format', action='store_true', default=False,
                     help='convert net in new save format to old format')
 parser.add_argument('--nesterov', action='store_true', default=False,
                     help = 'use nesterov in SGD')
+parser.add_argument('--gating_config_path', type=str,
+                    help = 'path to configuration file containing training parameters')
 
 
 best_acc1 = 0
@@ -116,6 +119,8 @@ DATASET_NUM_CLASSES = {'imagenet':1000, 'cifar10':10, 'cifar100':100}
 
 def main():
     args = parser.parse_args()
+    with open(args.gating_config_path) as f:
+        setattr(args, "gating_config", json.load(f))
 
     if args.backup_folder != '' and not os.path.exists(args.backup_folder):
         os.mkdir(args.backup_folder)
@@ -186,7 +191,8 @@ def main_worker(gpu, ngpus_per_node, args):
             model = VGGFullyConv(args.custom_model, num_classes)
     elif args.net_with_criterion:
         print("=> creating custom model with criterion'{}'".format(args.net_with_criterion))
-        model, criterion, param_groups_lr_adjustment_map = globals()[args.net_with_criterion](num_classes)
+        model, criterion, param_groups_lr_adjustment_map = globals()[args.net_with_criterion](
+            num_classes, args.gating_config)
     else:
         if args.pretrained:
             print("=> using pre-trained model '{}'".format(args.arch))
@@ -234,6 +240,8 @@ def main_worker(gpu, ngpus_per_node, args):
     criterion = criterion.cuda(args.gpu)
 
     if param_groups_lr_adjustment_map is not None:
+        # In case we have different learning rates for different parameters, create the optimizer for the first group
+        # which is most likely the main parameters, and add the other groups according to the configuration.
         inner_optimizer = torch.optim.SGD(param_groups_lr_adjustment_map[0], args.lr, momentum=args.momentum,
                                           weight_decay=args.weight_decay, nesterov=args.nesterov)
         optimizer = MultiGroupDynamicLROptimizer(inner_optimizer, param_groups_lr_adjustment_map[1])
@@ -514,6 +522,14 @@ class ProgressMeter(object):
 def adjust_lr_in_optimizer(optimizer, lr):
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
+
+
+def adjust_learning_rate(optimizer, epoch, args):
+    assert len(args.lr_steps) + 1 == len(args.lr_rates)
+    i = 0
+    while epoch > args.lr_steps[i] and i < len(args.lr_steps):
+        i += 1
+    adjust_lr_in_optimizer(optimizer, args.lr_rates[i])
 
 
 def adjust_learning_rate_and_get_batch_adjuster(optimizer, epoch, args):

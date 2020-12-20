@@ -7,10 +7,12 @@ from utils.funtional import AdjustedMultiplier, AdjustedDivisor, GetterArgsFunct
 from models.gated_prunning import prune_net_with_hooks
 
 
-def create_gatin_modules(mapper, gating_class, gate_init_prob, random_init):
+def create_gating_modules(mapper, gating_class, gate_init_prob, random_init):
     # create all gate modules
+    if isinstance(gate_init_prob, float):
+        gate_init_prob = [gate_init_prob for _ in range(len(mapper.hyper_edges))]
     hyper_edges_to_hooks = {}
-    for h in mapper.hyper_edges:
+    for i, h in enumerate(mapper.hyper_edges):
         convs = []
         sides = []
         for i in range(len(h.convs_and_sides)):
@@ -19,7 +21,7 @@ def create_gatin_modules(mapper, gating_class, gate_init_prob, random_init):
             # get alias module if exists
             module = mapper.alias_map.get((conv, side), conv)
             convs.append(module)
-        hyper_edges_to_hooks[h] = gating_class(convs, h.channels, sides, None, gate_init_prob, random_init)
+        hyper_edges_to_hooks[h] = gating_class(convs, h.channels, sides, None, gate_init_prob[i], random_init)
     return hyper_edges_to_hooks
 
 
@@ -38,7 +40,7 @@ def create_wrapped_net(mapper, gradient_multiplier=1.0, adaptive=True, gating_cl
     static_total_cost = getattr(mapper, factor_type.replace('factor', 'cost'))
 
     # create all gate modules
-    hyper_edges_to_hooks = create_gatin_modules(mapper, gating_class, gate_init_prob, random_init)
+    hyper_edges_to_hooks = create_gating_modules(mapper, gating_class, gate_init_prob, random_init)
 
     param_groups, lr_adjustment_map = [], {}
 
