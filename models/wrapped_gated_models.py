@@ -11,9 +11,16 @@ from models.gates_mapper import NaiveSequentialGatesModulesMapper, ResNetGatesMo
 from models.net_auxiliary_extension import NetWithAuxiliaryOutputs, CriterionWithAuxiliaryLosses, ClassificationLayerHook
 from models.custom_resnet import custom_resnet_18, custom_resnet_34, custom_resnet_50
 
-def channel_gating_reporting(layer, input):
+def channel_gating_reporting(layer, input, target):
     res = {'layer_{}_ch_use_mean'.format(layer): input.mean().item(),
            'layer_{}_ch_use_count'.format(layer): (input.mean(0) > 0.5).sum().item()/input.size(1)}
+    return res
+
+
+def aux_classifier_report_function(layer, input, target):
+    res = {'layer_{}_top1 accuracy'.format(layer): (input.argmax(1)==target).sum().item() / len(target),
+           'layer_{}_top5 accuracy'.format(layer):
+               (input.argsort(1)[:,:5] == target.view(-1,1).repeat(1,5)).sum().item() / len(target)}
     return res
 
 
@@ -24,44 +31,62 @@ def get_wrapped_gating_net_and_criteria(net, main_criterion, criteria_weight, gr
                                         aux_classification_losses_modules=None, aux_classification_losses_weights=None):
     mapper_class = ResNetGatesModulesMapper if isinstance(net, ResNet) else NaiveSequentialGatesModulesMapper
 
-    hooks, auxiliary_criteria, param_groups_lr_adjustment_map = create_wrapped_net(mapper_class(net, no_last_conv),
+    hooks, auxiliary_criteria, param_groups_lr_adjustment_map = create_wrapped_net(net, mapper_class(net, no_last_conv),
         gradient_multiplier, adaptive, gating_class, gate_init_prob, random_init, factor_type, edge_multipliers,
         gradient_secondary_multipliers, create_multiple_optimizers=True)
 
-    if param_groups_lr_adjustment_map is not None:
-        param_groups_lr, adjustmet_map = param_groups_lr_adjustment_map
-        param_groups_lr.insert(0, {'params': net.parameters()})
-        param_groups_lr_adjustment_map = param_groups_lr, adjustmet_map
-
-    # if aux_classification_losses_modules is not None:
-    #     # combine weights to one list
-    #     if isinstance(aux_classification_losses_weights, float):
-    #         aux_classification_losses_weights = \
-    #             [aux_classification_losses_weights for _ in range(len(aux_classification_losses_modules))]
-    #     else:
-    #         assert isinstance(aux_classification_losses_weights, list) and \
-    #                len(aux_classification_losses_weights) == len(aux_classification_losses_modules)
-    #     if isinstance(criteria_weight, float):
-    #         criteria_weight = [criteria_weight for _ in range(len(hooks))]
-    #
-    #     criteria_weight = criteria_weight + aux_classification_losses_weights
-    #
-    #     # create additional hooks
-    #     net_children = {k:v for k,v in net.named_modules()}
-    #     aux_hooks = []
-    #     for i, (module_name, c) in enumerate(aux_classification_losses_modules):
-    #         module = net_children[module_name]
-    #         aux_hooks.append(ClassificationLayerHook(module, c, aux_classification_losses_weights[i]))
-    #
-    #     aux_losses = [nn.CrossEntropyLoss() for _ in range(len(aux_hooks))]
-    #     hooks.extend(aux_hooks)
-    #     auxiliary_criteria.extend(aux_losses)
-
     report_func = channel_gating_reporting
+
+    if aux_classification_losses_modules is not None:
+        if isinstance(criteria_weight, float):
+            criteria_weight = [criteria_weight for _ in range(len(hooks))]
+        report_func = [report_func for _ in range(len(hooks))]
+
+        aux_hooks, aux_losses, aux_classification_losses_weights = add_aux_hooks(
+            net, 1000, aux_classification_losses_modules, aux_classification_losses_weights)
+
+        criteria_weight = criteria_weight + aux_classification_losses_weights
+
+        hooks.extend(aux_hooks)
+        auxiliary_criteria.extend(aux_losses)
+        report_func = report_func + [aux_classifier_report_function for _ in range(len(aux_hooks))]
 
     criterion = CriterionWithAuxiliaryLosses(main_criterion, auxiliary_criteria, criteria_weight, False, report_func)
     net_with_aux = NetWithAuxiliaryOutputs(net, hooks)
     return net_with_aux, criterion, param_groups_lr_adjustment_map
+
+
+def get_wrapped_aux_net(net, main_criterion, aux_classification_losses_modules, aux_classification_losses_weights):
+    aux_hooks, aux_losses, aux_classification_losses_weights = add_aux_hooks(
+        net, 1000, aux_classification_losses_modules, aux_classification_losses_weights)
+    report_func = aux_classifier_report_function
+
+    criterion = CriterionWithAuxiliaryLosses(main_criterion, aux_losses, aux_classification_losses_weights, False,
+                                             report_func)
+    net_with_aux = NetWithAuxiliaryOutputs(net, aux_hooks)
+    return net_with_aux, criterion, None
+
+
+def add_aux_hooks(net, num_classes, aux_classification_losses_modules, aux_classification_losses_weights):
+    # combine weights to one list
+    if isinstance(aux_classification_losses_weights, float):
+        aux_classification_losses_weights = \
+            [aux_classification_losses_weights for _ in range(len(aux_classification_losses_modules))]
+    else:
+        assert isinstance(aux_classification_losses_weights, list) and \
+               len(aux_classification_losses_weights) == len(aux_classification_losses_modules)
+
+    # create additional hooks
+    net_children = {k: v for k, v in net.named_modules()}
+    aux_hooks = []
+    for i, d in enumerate(aux_classification_losses_modules):
+        module_name, c = d["module"], d["channels"]
+        module = net_children[module_name]
+        aux_hooks.append(ClassificationLayerHook(module, c, num_classes))
+
+    aux_losses = [nn.CrossEntropyLoss() for _ in range(len(aux_hooks))]
+
+    return aux_hooks, aux_losses, aux_classification_losses_weights
 
 
 def custom_resnet_from_gated_net(net_name, net_weight_path, new_file_path=None, no_last_conv=False):
@@ -93,6 +118,9 @@ ResNet34_gating = lambda num_classes, kwargs:get_wrapped_gating_net_and_criteria
     resnet34(True, num_classes=num_classes), nn.CrossEntropyLoss(), **kwargs)
 
 ResNet50_gating = lambda num_classes, kwargs:get_wrapped_gating_net_and_criteria(
+    resnet50(True, num_classes=num_classes), nn.CrossEntropyLoss(), **kwargs)
+
+Resnet50_aux_losses = lambda num_classes, kwargs:get_wrapped_aux_net(
     resnet50(True, num_classes=num_classes), nn.CrossEntropyLoss(), **kwargs)
 
 

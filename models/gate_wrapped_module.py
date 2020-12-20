@@ -25,9 +25,10 @@ def create_gating_modules(mapper, gating_class, gate_init_prob, random_init):
     return hyper_edges_to_hooks
 
 
-def create_wrapped_net(mapper, gradient_multiplier=1.0, adaptive=True, gating_class=ModuleChannelsLogisticGatingMasked,
-                       gate_init_prob=0.99, random_init=False, factor_type="flop_factor", edge_multipliers=None,
-                       gradient_secondary_multipliers=None, create_multiple_optimizers=False):
+def create_wrapped_net(net, mapper, gradient_multiplier=1.0, adaptive=True,
+                       gating_class=ModuleChannelsLogisticGatingMasked, gate_init_prob=0.99, random_init=False,
+                       factor_type="flop_factor", edge_multipliers=None, gradient_secondary_multipliers=None,
+                       create_multiple_optimizers=False):
     if edge_multipliers is not None:
         assert isinstance(edge_multipliers, list)
         assert len(edge_multipliers) == len(mapper.hyper_edges)
@@ -42,7 +43,8 @@ def create_wrapped_net(mapper, gradient_multiplier=1.0, adaptive=True, gating_cl
     # create all gate modules
     hyper_edges_to_hooks = create_gating_modules(mapper, gating_class, gate_init_prob, random_init)
 
-    param_groups, lr_adjustment_map = [], {}
+    if create_multiple_optimizers:
+        param_groups, lr_adjustment_map = [ {'params': net.parameters()}], {}
 
     # link costs and create losses
     for i, h in enumerate(mapper.hyper_edges):
@@ -73,8 +75,9 @@ def create_wrapped_net(mapper, gradient_multiplier=1.0, adaptive=True, gating_cl
         gradient_adjustment = AdjustedDivisor(weight_func, gradient_total_multiplier)
         # print(len(h.convs_and_sides), gradient_adjustment(), weight_func())
         if create_multiple_optimizers:
-            param_groups.append({'params': hook.parameters()})
+            # param groups has already main module params when inserting the first adjustment which gets the index 1
             lr_adjustment_map[len(param_groups)] = gradient_adjustment
+            param_groups.append({'params': hook.parameters()})
         else:
             hook.set_gradient_adjustment(gradient_adjustment)
         hooks.append(hook)
