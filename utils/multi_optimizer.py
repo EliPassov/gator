@@ -39,11 +39,14 @@ class MultiGroupDynamicLROptimizer:
 
     def step(self):
         current_lr = self.optimizer.param_groups[0]['lr']
+        current_wd = self.optimizer.param_groups[0]['weight_decay']
         for group_id, lr_multiplier in self.lr_update_map.items():
-             self.optimizer.param_groups[group_id]['lr'] = current_lr * lr_multiplier()
+            self.optimizer.param_groups[group_id]['lr'] = current_lr * lr_multiplier()
+            self.optimizer.param_groups[group_id]['weight_decay'] = current_wd / lr_multiplier()
         self.optimizer.step()
         # retort learning rate to first group in case it was modified
         self.optimizer.param_groups[0]['lr'] = current_lr
+        self.optimizer.param_groups[0]['weight_decay'] = current_wd
 
     def add_param_group(self, param_group):
         raise ValueError('add_param_group must be applied on the optimizer object of this class explicitly!')
