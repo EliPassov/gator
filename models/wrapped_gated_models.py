@@ -20,20 +20,8 @@ def channel_gating_reporting(layer, input):
 def get_wrapped_gating_net_and_criteria(net, main_criterion, criteria_weight, gradient_multiplier=1.0, adaptive=True,
                                         gating_class=ModuleChannelsLogisticGatingMasked, gate_init_prob=0.99,
                                         random_init=False, factor_type='flop_factor', no_last_conv=False,
-                                        edge_multipliers_csv_path=None, gradient_multipliers_csv_path=None,
+                                        edge_multipliers=None, gradient_secondary_multipliers=None,
                                         aux_classification_losses_modules=None, aux_classification_losses_weights=None):
-    edge_multipliers = None
-    if edge_multipliers_csv_path is not None:
-        edge_multipliers = pd.read_csv(edge_multipliers_csv_path, index_col=None, header=None).values
-        # normalize such that the sum is the number of them (i.e. neutral weight is 1)
-        edge_multipliers = edge_multipliers * len(edge_multipliers)/ edge_multipliers.sum(0)
-        edge_multipliers = edge_multipliers.reshape(-1).tolist()
-
-    gradient_secondary_multipliers = None
-    if gradient_multipliers_csv_path is not None:
-        gradient_secondary_multipliers = pd.read_csv(gradient_multipliers_csv_path, index_col=None, header=None)\
-            .values.reshape(-1).tolist()
-
     mapper_class = ResNetGatesModulesMapper if isinstance(net, ResNet) else NaiveSequentialGatesModulesMapper
 
     hooks, auxiliary_criteria, param_groups_lr_adjustment_map = create_wrapped_net(mapper_class(net, no_last_conv),
@@ -98,35 +86,18 @@ def custom_resnet_from_gated_net(net_name, net_weight_path, new_file_path=None, 
         return custom_net_func(channels_config)
 
 
-ResNet18_gating = lambda classes:get_wrapped_gating_net_and_criteria(
-    resnet18(True), nn.CrossEntropyLoss(), 0.2)
+ResNet18_gating = lambda num_classes, kwargs :get_wrapped_gating_net_and_criteria(
+    resnet18(True, num_classes=num_classes), nn.CrossEntropyLoss(), **kwargs)
 
-ResNet34_gating = lambda classes:get_wrapped_gating_net_and_criteria(
-    resnet34(True), nn.CrossEntropyLoss(), 0.2)
+ResNet34_gating = lambda num_classes, kwargs:get_wrapped_gating_net_and_criteria(
+    resnet34(True, num_classes=num_classes), nn.CrossEntropyLoss(), **kwargs)
 
-ResNet50_gating = lambda classes:get_wrapped_gating_net_and_criteria(
-    resnet50(True), nn.CrossEntropyLoss(), 0.25, gradient_multiplier=0.2, gate_init_prob=0.995)
-
-# ResNet50_gating = lambda classes:get_wrapped_gating_net_and_criteria(
-#     resnet50(True), nn.CrossEntropyLoss(), 0.2, gradient_multiplier=0.2, gate_init_prob=0.995,
-#     aux_classification_losses_modules = [], aux_classification_losses_weights=[])
-
-
-ResNet50_gating_custom = lambda classes:get_wrapped_gating_net_and_criteria(
-    resnet50(True), nn.CrossEntropyLoss(), 0.5, gradient_multiplier=0.2, gate_init_prob=0.995
-    ,edge_multipliers_csv_path='./models/data/resnet_50_hyper_edge_rel_factor.csv')
-
-ResNet50_gating_memory = lambda classes:get_wrapped_gating_net_and_criteria(
-    resnet50(True), nn.CrossEntropyLoss(), 0.5, gradient_multiplier=0.2, gate_init_prob=0.995,
-    factor_type='memory_factor', gradient_multipliers_csv_path='./models/data/resnet_50_hyper_edge_memory_factor.csv')
-
-ResNet50_gating_memory_test = lambda classes:get_wrapped_gating_net_and_criteria(
-    resnet50(True), None, 0.5, gradient_multiplier=0.2, gate_init_prob=0.995,
-    factor_type='flop_factor')#, gradient_multipliers_csv_path='./models/data/resnet_50_hyper_edge_memory_factor.csv')
+ResNet50_gating = lambda num_classes, kwargs:get_wrapped_gating_net_and_criteria(
+    resnet50(True, num_classes=num_classes), nn.CrossEntropyLoss(), **kwargs)
 
 
 if __name__ == '__main__':
-    net, criterion = ResNet50_gating_memory_test(1000)
+    net, criterion, _ = ResNet50_gating(1000, {})
     net = net.cuda()
     sample = torch.randn(1,3,224,224).cuda()
     output = net(sample)

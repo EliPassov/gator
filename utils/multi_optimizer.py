@@ -42,9 +42,10 @@ class MultiGroupDynamicLROptimizer:
         current_wd = self.optimizer.param_groups[0]['weight_decay']
         for group_id, lr_multiplier in self.lr_update_map.items():
             self.optimizer.param_groups[group_id]['lr'] = current_lr * lr_multiplier()
+            # Fix weight decay to match the value of the original learning rate
             self.optimizer.param_groups[group_id]['weight_decay'] = current_wd / lr_multiplier()
         self.optimizer.step()
-        # retort learning rate to first group in case it was modified
+        # restore learning rate to first group in case it was modified
         self.optimizer.param_groups[0]['lr'] = current_lr
         self.optimizer.param_groups[0]['weight_decay'] = current_wd
 

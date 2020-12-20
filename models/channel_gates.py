@@ -100,7 +100,7 @@ class WeightedL1Criterion(nn.Module):
 
 
 class ChannelsLogisticGating(nn.Module):
-    def __init__(self, channels, gradient_adjustment=None, gate_init_prob=0.99, random_init=False,  hard_gating=True,
+    def __init__(self, channels, gradient_adjustment=None, gate_init_prob=0.99, random_init=False, hard_gating=True,
                  temperature=1):
         """
         Implementation of soft/hard gating using gumbel softmax (logistic sigmoid for binary) via pytorch hooks.
