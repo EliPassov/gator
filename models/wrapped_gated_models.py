@@ -1,4 +1,5 @@
 from copy import deepcopy
+import warnings
 
 import pandas as pd
 import torch
@@ -24,12 +25,15 @@ def aux_classifier_report_function(layer, input, target):
     return res
 
 
-def get_wrapped_gating_net_and_criteria(net, main_criterion, criteria_weight, gradient_multiplier=1.0, adaptive=True,
-                                        gating_class=ModuleChannelsLogisticGatingMasked, gate_init_prob=0.99,
-                                        random_init=False, factor_type='flop_factor', no_last_conv=False,
-                                        edge_multipliers=None, gradient_secondary_multipliers=None,
+def get_wrapped_gating_net_and_criteria(net, main_criterion, criteria_weight=0.0, gradient_multiplier=1.0,
+                                        adaptive=True, gating_class=ModuleChannelsLogisticGatingMasked,
+                                        gate_init_prob=0.99, random_init=False, factor_type='flop_factor',
+                                        no_last_conv=False, edge_multipliers=None, gradient_secondary_multipliers=None,
                                         aux_classification_losses_modules=None, aux_classification_losses_weights=None):
     mapper_class = ResNetGatesModulesMapper if isinstance(net, ResNet) else NaiveSequentialGatesModulesMapper
+
+    if criteria_weight == 0.0:
+        warnings.warn("created gating module with 0 weight, make sure you are not training it")
 
     hooks, auxiliary_criteria, param_groups_lr_adjustment_map = create_wrapped_net(net, mapper_class(net, no_last_conv),
         gradient_multiplier, adaptive, gating_class, gate_init_prob, random_init, factor_type, edge_multipliers,
@@ -111,28 +115,14 @@ def custom_resnet_from_gated_net(net_name, net_weight_path, new_file_path=None, 
         return custom_net_func(channels_config)
 
 
-ResNet18_gating = lambda num_classes, kwargs :get_wrapped_gating_net_and_criteria(
+ResNet18_gating = lambda num_classes=1000, kwargs={}: get_wrapped_gating_net_and_criteria(
     resnet18(True, num_classes=num_classes), nn.CrossEntropyLoss(), **kwargs)
 
-ResNet34_gating = lambda num_classes, kwargs:get_wrapped_gating_net_and_criteria(
+ResNet34_gating = lambda num_classes=1000, kwargs={}: get_wrapped_gating_net_and_criteria(
     resnet34(True, num_classes=num_classes), nn.CrossEntropyLoss(), **kwargs)
 
-ResNet50_gating = lambda num_classes, kwargs:get_wrapped_gating_net_and_criteria(
+ResNet50_gating = lambda num_classes=1000, kwargs={}: get_wrapped_gating_net_and_criteria(
     resnet50(True, num_classes=num_classes), nn.CrossEntropyLoss(), **kwargs)
 
-Resnet50_aux_losses = lambda num_classes, kwargs:get_wrapped_aux_net(
+Resnet50_aux_losses = lambda num_classes=1000, kwargs={}: get_wrapped_aux_net(
     resnet50(True, num_classes=num_classes), nn.CrossEntropyLoss(), **kwargs)
-
-
-if __name__ == '__main__':
-    net, criterion, _ = ResNet50_gating(1000, {})
-    net = net.cuda()
-    sample = torch.randn(1,3,224,224).cuda()
-    output = net(sample)
-    target = torch.ones(1).long().cuda()
-    loss = criterion(output, target)
-    loss['loss'].backward()
-    for h in net.forward_hooks:
-        grads = h.gating_module.gating_weights.grad
-        print(grads.mean().item(), grads.std().item())
-    aaa = 3
