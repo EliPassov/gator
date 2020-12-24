@@ -29,7 +29,8 @@ def get_wrapped_gating_net_and_criteria(net, main_criterion, criteria_weight=0.0
                                         adaptive=True, gating_class=ModuleChannelsLogisticGatingMasked,
                                         gate_init_prob=0.99, random_init=False, factor_type='flop_factor',
                                         no_last_conv=False, edge_multipliers=None, gradient_secondary_multipliers=None,
-                                        aux_classification_losses_modules=None, aux_classification_losses_weights=None):
+                                        aux_classification_losses_modules=None, aux_classification_losses_weights=None,
+                                        aux_classification_lr_multiplier=None):
     mapper_class = ResNetGatesModulesMapper if isinstance(net, ResNet) else NaiveSequentialGatesModulesMapper
 
     if criteria_weight == 0.0:
@@ -46,32 +47,43 @@ def get_wrapped_gating_net_and_criteria(net, main_criterion, criteria_weight=0.0
             criteria_weight = [criteria_weight for _ in range(len(hooks))]
         report_func = [report_func for _ in range(len(hooks))]
 
-        aux_hooks, aux_losses, aux_classification_losses_weights = add_aux_hooks(
-            net, 1000, aux_classification_losses_modules, aux_classification_losses_weights)
+        aux_hooks, aux_losses, aux_classification_losses_weights, aux_param_groups_lr_adjustment_map= add_aux_hooks(
+            net, 1000, aux_classification_losses_modules, aux_classification_losses_weights,
+            aux_classification_lr_multiplier)
 
         criteria_weight = criteria_weight + aux_classification_losses_weights
 
         hooks.extend(aux_hooks)
         auxiliary_criteria.extend(aux_losses)
         report_func = report_func + [aux_classifier_report_function for _ in range(len(aux_hooks))]
+        if aux_param_groups_lr_adjustment_map is not None:
+            if param_groups_lr_adjustment_map is None:
+                raise ValueError()
+            (param_groups, lr_adjustment_map) = param_groups_lr_adjustment_map
+            param_groups.extend(aux_param_groups_lr_adjustment_map[0])
+            lr_adjustment_map.update(aux_param_groups_lr_adjustment_map[1])
+            param_groups_lr_adjustment_map= (param_groups, lr_adjustment_map)
 
     criterion = CriterionWithAuxiliaryLosses(main_criterion, auxiliary_criteria, criteria_weight, False, report_func)
     net_with_aux = NetWithAuxiliaryOutputs(net, hooks)
     return net_with_aux, criterion, param_groups_lr_adjustment_map
 
 
-def get_wrapped_aux_net(net, main_criterion, aux_classification_losses_modules, aux_classification_losses_weights):
-    aux_hooks, aux_losses, aux_classification_losses_weights = add_aux_hooks(
-        net, 1000, aux_classification_losses_modules, aux_classification_losses_weights)
+def get_wrapped_aux_net(net, main_criterion, aux_classification_losses_modules, aux_classification_losses_weights,
+                        aux_classification_lr_multiplier=None):
+    aux_hooks, aux_losses, aux_classification_losses_weights, aux_param_groups_lr_adjustment_map = add_aux_hooks(
+        net, 1000, aux_classification_losses_modules, aux_classification_losses_weights,
+        aux_classification_lr_multiplier)
     report_func = aux_classifier_report_function
 
     criterion = CriterionWithAuxiliaryLosses(main_criterion, aux_losses, aux_classification_losses_weights, False,
                                              report_func)
     net_with_aux = NetWithAuxiliaryOutputs(net, aux_hooks)
-    return net_with_aux, criterion, None
+    return net_with_aux, criterion, aux_param_groups_lr_adjustment_map
 
 
-def add_aux_hooks(net, num_classes, aux_classification_losses_modules, aux_classification_losses_weights):
+def add_aux_hooks(net, num_classes, aux_classification_losses_modules, aux_classification_losses_weights,
+                  aux_classification_lr_multiplier=None):
     # combine weights to one list
     if isinstance(aux_classification_losses_weights, float):
         aux_classification_losses_weights = \
@@ -80,17 +92,29 @@ def add_aux_hooks(net, num_classes, aux_classification_losses_modules, aux_class
         assert isinstance(aux_classification_losses_weights, list) and \
                len(aux_classification_losses_weights) == len(aux_classification_losses_modules)
 
+    if aux_classification_lr_multiplier is not None:
+        if isinstance(aux_classification_lr_multiplier, float):
+            aux_classification_lr_multiplier = \
+                [aux_classification_lr_multiplier for _ in range(len(aux_classification_losses_modules))]
+        assert len(aux_classification_lr_multiplier) == len(aux_classification_losses_weights)
+
+        param_groups, lr_adjustment_map = [ {'params': net.parameters()}], {}
+
     # create additional hooks
     net_children = {k: v for k, v in net.named_modules()}
     aux_hooks = []
     for i, d in enumerate(aux_classification_losses_modules):
         module_name, c = d["module"], d["channels"]
         module = net_children[module_name]
-        aux_hooks.append(ClassificationLayerHook(module, c, num_classes))
+        aux_hook = ClassificationLayerHook(module, c, num_classes)
+        aux_hooks.append(aux_hook)
+        lr_adjustment_map[len(param_groups)] = lambda : aux_classification_lr_multiplier[i]
+        param_groups.append({'params': aux_hook.parameters()})
 
     aux_losses = [nn.CrossEntropyLoss() for _ in range(len(aux_hooks))]
 
-    return aux_hooks, aux_losses, aux_classification_losses_weights
+    return aux_hooks, aux_losses, aux_classification_losses_weights, \
+           (param_groups, lr_adjustment_map) if aux_classification_lr_multiplier is not None  else None
 
 
 def custom_resnet_from_gated_net(net_name, net_weight_path, new_file_path=None, no_last_conv=False):
