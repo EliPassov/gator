@@ -101,7 +101,7 @@ class WeightedL1Criterion(nn.Module):
 
 class ChannelsLogisticGating(nn.Module):
     def __init__(self, channels, gradient_adjustment=None, gate_init_prob=0.99, random_init=False, hard_gating=True,
-                 temperature=1):
+                 temperature=1, gate_weights=None):
         """
         Implementation of soft/hard gating using gumbel softmax (logistic sigmoid for binary) via pytorch hooks.
         The module expect an input module to apply the gating before or after passing through the input module
@@ -111,10 +111,14 @@ class ChannelsLogisticGating(nn.Module):
         :param random_init: randomize initialization probability around gate_init_prob
         :param hard_gating: Apply soft or hard gating
         :param temperature: temperature of the sigmoid
+        :param gate_weights: gate weights instead of initial weights
         """
         super(ChannelsLogisticGating, self).__init__()
         quantile_res = logistic_quantile_funciton(gate_init_prob)
-        init_weights = torch.ones(channels) * quantile_res
+        if gate_weights is None:
+            init_weights = torch.ones(channels) * quantile_res
+        else:
+            init_weights = gate_weights
         if random_init:
             # Add uniform +/- 10% random noise
             init_weights = init_weights + torch.rand(channels) * quantile_res / 5 - quantile_res / 10
@@ -203,7 +207,7 @@ class ChannelsLogisticGating(nn.Module):
 
 class ChannelsLogisticGatingMasked(ChannelsLogisticGating):
     def __init__(self, channels, gradient_adjustment=None, gate_init_prob=0.99, random_init=False, hard_gating=True,
-                 temperature=1, deactivate_prob_threshold=0.5, auto_mask_recalculation=True):
+                 temperature=1, deactivate_prob_threshold=0.5, auto_mask_recalculation=True, gate_weights=None):
         """
         A masked version which applies permanent gating once a weight has crossed a certain threshold probability
         (See base class for all other params)
@@ -211,7 +215,7 @@ class ChannelsLogisticGatingMasked(ChannelsLogisticGating):
         :param auto_mask_recalculation: if true, recalculate the mask before each forward application, otherwise, mask recalculation should be called externally
         """
         super(ChannelsLogisticGatingMasked, self).__init__(channels, gradient_adjustment, gate_init_prob, random_init,
-                                                           hard_gating, temperature)
+                                                           hard_gating, temperature, gate_weights=gate_weights)
         self.active_channels_mask = nn.Parameter(data=torch.ones(channels), requires_grad=False)
         self.original_channels = channels
         self.deactivate_threshold = logistic_quantile_funciton(deactivate_prob_threshold)
@@ -247,17 +251,18 @@ class ChannelsLogisticGatingMasked(ChannelsLogisticGating):
 
 class ModuleChannelsLogisticGating(ModulesChannelsGatingHooks):
     def __init__(self, module, channels, pre_module, gradient_adjustment=None, gate_init_prob=0.99, random_init=False,
-                 hard_gating=True, temperature=1):
+                 hard_gating=True, temperature=1, gate_weights=None):
         super(ModuleChannelsLogisticGating, self).__init__(module, pre_module, ChannelsLogisticGating(
-            channels, gradient_adjustment, gate_init_prob, hard_gating, temperature))
+            channels, gradient_adjustment, gate_init_prob, hard_gating, temperature, gate_weights=gate_weights))
 
 
 class ModuleChannelsLogisticGatingMasked(ModulesChannelsGatingHooks):
     def __init__(self, module, channels, pre_module, gradient_adjustment=None, gate_init_prob=0.99, random_init=False,
-                 hard_gating=True, temperature=1, deactivate_prob_threshold = 0.5, auto_mask_recalculation=True):
+                 hard_gating=True, temperature=1, deactivate_prob_threshold = 0.5, auto_mask_recalculation=True,
+                 gate_weights=None):
         super(ModuleChannelsLogisticGatingMasked, self).__init__(module, pre_module, ChannelsLogisticGatingMasked(
             channels, gradient_adjustment, gate_init_prob, random_init, hard_gating, temperature,
-            deactivate_prob_threshold, auto_mask_recalculation))
+            deactivate_prob_threshold, auto_mask_recalculation, gate_weights=gate_weights))
 #
 #
 # if __name__ == '__main__':

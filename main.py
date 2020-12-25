@@ -189,10 +189,6 @@ def main_worker(gpu, ngpus_per_node, args):
             model = custom_resnet_50(channels_config, num_classes)
         elif 'vgg' in args.custom_model.lower():
             model = VGGFullyConv(args.custom_model, num_classes)
-    elif args.net_with_criterion:
-        print("=> creating custom model with criterion'{}'".format(args.net_with_criterion))
-        model, criterion, param_groups_lr_adjustment_map = globals()[args.net_with_criterion](
-            num_classes, args.gating_config)
     else:
         if args.pretrained:
             print("=> using pre-trained model '{}'".format(args.arch))
@@ -200,6 +196,9 @@ def main_worker(gpu, ngpus_per_node, args):
         else:
             print("=> creating model '{}'".format(args.arch))
             model = models.__dict__[args.arch](num_classes=num_classes)
+    if args.net_with_criterion:
+        print("=> creating custom model with criterion'{}'".format(args.net_with_criterion))
+        model, criterion, param_groups_lr_adjustment_map = globals()[args.net_with_criterion](model, args.gating_config)
 
     if args.subdivision > 1:
         assert args.batch_size % args.subdivision == 0
