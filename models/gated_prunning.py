@@ -1,3 +1,5 @@
+from copy import deepcopy
+
 import torch
 from torch import nn
 
@@ -165,6 +167,13 @@ class ConvToPrune:
             new_bn.running_var = self.bn.running_var.data[new_out_channels.nonzero()].reshape(new_bn.bias.shape)
 
         return new_conv, new_bn
+
+
+def get_pruned_hooks_weights(net_with_hooks):
+    new_weights = []
+    for h in net_with_hooks.forward_hooks:
+        new_weights.append(h.gating_module.gating_weights.data[h.gating_module.active_channels_mask.nonzero()[:, 0]])
+    return new_weights
 
 
 def prune_net_with_hooks(net_with_hooks, mapper, apply_replacements=False, print_replacements=False):

@@ -1,3 +1,4 @@
+from functools import partial
 import numpy as np
 import torch
 from torch import nn
@@ -7,7 +8,7 @@ from utils.funtional import AdjustedMultiplier, AdjustedDivisor, GetterArgsFunct
 from models.gated_prunning import prune_net_with_hooks
 
 
-def create_gating_modules(mapper, gating_class, gate_init_prob, random_init):
+def create_gating_modules(mapper, gating_class, gate_init_prob, random_init, gate_weights=None):
     # create all gate modules
     if isinstance(gate_init_prob, float):
         gate_init_prob = [gate_init_prob for _ in range(len(mapper.hyper_edges))]
@@ -15,20 +16,23 @@ def create_gating_modules(mapper, gating_class, gate_init_prob, random_init):
     for i, h in enumerate(mapper.hyper_edges):
         convs = []
         sides = []
-        for i in range(len(h.convs_and_sides)):
-            conv, side = h.convs_and_sides[i]
+        for j in range(len(h.convs_and_sides)):
+            conv, side = h.convs_and_sides[j]
             sides.append(side)
             # get alias module if exists
             module = mapper.alias_map.get((conv, side), conv)
             convs.append(module)
-        hyper_edges_to_hooks[h] = gating_class(convs, h.channels, sides, None, gate_init_prob[i], random_init)
+        # inject gate_weights[i] in call
+        gating_call = partial(gating_class, gate_weights=gate_weights[i]) if gate_weights is not None else gating_class
+
+        hyper_edges_to_hooks[h] = gating_call(convs, h.channels, sides, None, gate_init_prob[i], random_init)
     return hyper_edges_to_hooks
 
 
 def create_wrapped_net(net, mapper, gradient_multiplier=1.0, adaptive=True,
                        gating_class=ModuleChannelsLogisticGatingMasked, gate_init_prob=0.99, random_init=False,
                        factor_type="flop_factor", edge_multipliers=None, gradient_secondary_multipliers=None,
-                       create_multiple_optimizers=False):
+                       create_multiple_optimizers=False, gate_weights=None):
     if edge_multipliers is not None:
         assert isinstance(edge_multipliers, list)
         assert len(edge_multipliers) == len(mapper.hyper_edges)
@@ -41,7 +45,7 @@ def create_wrapped_net(net, mapper, gradient_multiplier=1.0, adaptive=True,
     static_total_cost = getattr(mapper, factor_type.replace('factor', 'cost'))
 
     # create all gate modules
-    hyper_edges_to_hooks = create_gating_modules(mapper, gating_class, gate_init_prob, random_init)
+    hyper_edges_to_hooks = create_gating_modules(mapper, gating_class, gate_init_prob, random_init, gate_weights)
 
     if create_multiple_optimizers:
         param_groups, lr_adjustment_map = [ {'params': net.parameters()}], {}

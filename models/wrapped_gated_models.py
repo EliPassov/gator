@@ -6,11 +6,14 @@ import torch
 from torch import nn
 from torchvision.models.resnet import ResNet, resnet18, resnet34, resnet50
 
-from models.channel_gates import ModuleChannelsLogisticGating, ModuleChannelsLogisticGatingMasked
+from models.channel_gates import ModuleChannelsLogisticGating, ModuleChannelsLogisticGatingMasked, \
+    logistic_quantile_funciton
 from models.gate_wrapped_module import create_wrapped_net, create_conv_channels_dict
 from models.gates_mapper import NaiveSequentialGatesModulesMapper, ResNetGatesModulesMapper
 from models.net_auxiliary_extension import NetWithAuxiliaryOutputs, CriterionWithAuxiliaryLosses, ClassificationLayerHook
 from models.custom_resnet import custom_resnet_18, custom_resnet_34, custom_resnet_50
+from models.gated_prunning import get_pruned_hooks_weights
+
 
 def channel_gating_reporting(layer, input, target):
     res = {'layer_{}_ch_use_mean'.format(layer): input.mean().item(),
@@ -30,7 +33,7 @@ def get_wrapped_gating_net_and_criteria(net, main_criterion, criteria_weight=0.0
                                         gate_init_prob=0.99, random_init=False, factor_type='flop_factor',
                                         no_last_conv=False, edge_multipliers=None, gradient_secondary_multipliers=None,
                                         aux_classification_losses_modules=None, aux_classification_losses_weights=None,
-                                        aux_classification_lr_multiplier=None):
+                                        aux_classification_lr_multiplier=None, gate_weights=None):
     mapper_class = ResNetGatesModulesMapper if isinstance(net, ResNet) else NaiveSequentialGatesModulesMapper
 
     if criteria_weight == 0.0:
@@ -38,7 +41,7 @@ def get_wrapped_gating_net_and_criteria(net, main_criterion, criteria_weight=0.0
 
     hooks, auxiliary_criteria, param_groups_lr_adjustment_map = create_wrapped_net(net, mapper_class(net, no_last_conv),
         gradient_multiplier, adaptive, gating_class, gate_init_prob, random_init, factor_type, edge_multipliers,
-        gradient_secondary_multipliers, create_multiple_optimizers=True)
+        gradient_secondary_multipliers, create_multiple_optimizers=True, gate_weights=gate_weights)
 
     report_func = channel_gating_reporting
 
@@ -117,13 +120,18 @@ def add_aux_hooks(net, num_classes, aux_classification_losses_modules, aux_class
            (param_groups, lr_adjustment_map) if aux_classification_lr_multiplier is not None  else None
 
 
-def custom_resnet_from_gated_net(net_name, net_weight_path, new_file_path=None, no_last_conv=False):
-    net, _, _ = globals()[net_name](1000)
+def read_net(net, criterion_name, net_weight_path):
+    wrapped_net, _, _ = globals()[criterion_name](net)
     full_state_dict = torch.load(net_weight_path)
     weights_state_dict = {k[7:]: v for k, v in full_state_dict['state_dict'].items()}
-    net.load_state_dict(weights_state_dict)
-    mapper = ResNetGatesModulesMapper(net.net, no_last_conv, map_for_replacement=True)
-    channels_config, new_weights_state_dict = create_conv_channels_dict(net, mapper)
+    wrapped_net.load_state_dict(weights_state_dict)
+    return wrapped_net, full_state_dict
+
+
+def custom_resnet_from_gated_net(net, criterion_name, net_weight_path, new_file_path=None, no_last_conv=False):
+    wrapped_net, full_state_dict = read_net(net, criterion_name, net_weight_path)
+    mapper = ResNetGatesModulesMapper(net, no_last_conv)
+    channels_config, new_weights_state_dict = create_conv_channels_dict(wrapped_net, mapper)
 
     new_state_dict = deepcopy(full_state_dict)
     del new_state_dict['optimizer']
@@ -139,14 +147,99 @@ def custom_resnet_from_gated_net(net_name, net_weight_path, new_file_path=None, 
         return custom_net_func(channels_config)
 
 
-ResNet18_gating = lambda num_classes=1000, kwargs={}: get_wrapped_gating_net_and_criteria(
-    resnet18(True, num_classes=num_classes), nn.CrossEntropyLoss(), **kwargs)
+def clamp_gate_weights(gate_weights, gate_max_probs):
+    if isinstance(gate_max_probs, float):
+        gate_max_probs = [gate_max_probs for _ in range(len(gate_weights))]
 
-ResNet34_gating = lambda num_classes=1000, kwargs={}: get_wrapped_gating_net_and_criteria(
-    resnet34(True, num_classes=num_classes), nn.CrossEntropyLoss(), **kwargs)
+    for i in range(len(gate_weights)):
+        gate_max_weight = logistic_quantile_funciton(gate_max_probs[i])
+        gate_weights[i] = gate_weights[i].clamp(max=gate_max_weight)
 
-ResNet50_gating = lambda num_classes=1000, kwargs={}: get_wrapped_gating_net_and_criteria(
-    resnet50(True, num_classes=num_classes), nn.CrossEntropyLoss(), **kwargs)
 
-Resnet50_aux_losses = lambda num_classes=1000, kwargs={}: get_wrapped_aux_net(
-    resnet50(True, num_classes=num_classes), nn.CrossEntropyLoss(), **kwargs)
+def prune_custom_resnet(net, no_last_conv=False, clamp_init_prob=False, net_config_kwargs={}):
+    """
+    Apply pruning on standard or custom resnet with gates
+    :param net: Original net
+    :param no_last_conv:
+    :param clamp_init_prob: limit the max gating value by the initialized value. This option should be used when
+    initializing new training for higher pruning to reduce the gating weights which were previously pushed towards
+    high value and now might be eligible for pruning
+    :param net_config_kwargs: gated network configuration
+    :return:
+    """
+    mapper = ResNetGatesModulesMapper(net.net, no_last_conv)
+    channels_config, new_weights_state_dict = create_conv_channels_dict(net, mapper)
+
+    custom_net_func = custom_resnet_50
+    for ind in ['18', '34', '50']:
+        if ind in type(net).__name__:
+            custom_net_func = globals()['custom_resnet_' + ind]
+    new_sub_net = custom_net_func(channels_config)
+    gate_weights = get_pruned_hooks_weights(net)
+
+    if clamp_init_prob:
+        init_probs = net_config_kwargs['gate_init_prob']
+        clamp_gate_weights(gate_weights, init_probs)
+
+    return get_wrapped_gating_net_and_criteria(new_sub_net, nn.CrossEntropyLoss(), gate_weights=gate_weights,
+                                               **net_config_kwargs)
+
+
+def pruned_custom_net_from_gated_net(net, criterion_name, net_weight_path, new_file_path, gate_max_probs,
+                                     no_last_conv=False):
+    wrapped_net, full_state_dict = read_net(net, criterion_name, net_weight_path)
+
+    mapper = ResNetGatesModulesMapper(net, no_last_conv)
+    channels_config, new_weights_state_dict = create_conv_channels_dict(wrapped_net, mapper)
+
+    new_state_dict = deepcopy(full_state_dict)
+    new_state_dict['state_dict'] = wrapped_net.state_dict()
+    del new_state_dict['optimizer']
+    new_state_dict['channels_config'] = channels_config
+
+    custom_net_func = custom_resnet_50
+    for ind in ['18', '34', '50']:
+        if ind in type(net).__name__:
+            custom_net_func = globals()['custom_resnet_' + ind]
+    new_sub_net = custom_net_func(channels_config)
+    gate_weights = get_pruned_hooks_weights(wrapped_net)
+
+    clamp_gate_weights(gate_weights, gate_max_probs)
+
+    new_net, _, _ = get_wrapped_gating_net_and_criteria(new_sub_net, nn.CrossEntropyLoss(), gate_weights=gate_weights)
+
+    new_net.net.load_state_dict(new_weights_state_dict)
+    new_state_dict['state_dict'] = {'module.' + k:v for k,v in new_net.state_dict().items()}
+
+    torch.save(new_state_dict, new_file_path)
+
+
+
+# ResNet18_gating = lambda num_classes=1000, kwargs={}: get_wrapped_gating_net_and_criteria(
+#     resnet18(True, num_classes=num_classes), nn.CrossEntropyLoss(), **kwargs)
+#
+# ResNet34_gating = lambda num_classes=1000, kwargs={}: get_wrapped_gating_net_and_criteria(
+#     resnet34(True, num_classes=num_classes), nn.CrossEntropyLoss(), **kwargs)
+
+ResNet50_gating = lambda net, kwargs={}: get_wrapped_gating_net_and_criteria(net, nn.CrossEntropyLoss(), **kwargs)
+
+Resnet50_aux_losses = lambda num_classes=1000, kwargs={}: get_wrapped_aux_net(net, nn.CrossEntropyLoss(), **kwargs)
+
+
+if __name__ == '__main__':
+    net_name = 'ResNet50_gating'
+    net_weight_path='/home/eli/Eli/Training/Imagenet/resnet50/resnet50_pre_0_995_w_0_25_gm_0_2_w_0_5/net_e_80'
+    net, _, _ = globals()[net_name](1000)
+    full_state_dict = torch.load(net_weight_path)
+    weights_state_dict = {k[7:]: v for k, v in full_state_dict['state_dict'].items()}
+    net.load_state_dict(weights_state_dict)
+    custom_net, _, _ = prune_custom_resnet(net)
+
+    custom_net = custom_net.cuda()
+
+    custom_net.eval()
+    sample = torch.rand((1,3,224,224)).cuda()
+    res = custom_net(sample)
+
+    print(res)
+
