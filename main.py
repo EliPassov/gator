@@ -107,7 +107,7 @@ parser.add_argument('--create_old_format', action='store_true', default=False,
                     help='convert net in new save format to old format')
 parser.add_argument('--nesterov', action='store_true', default=False,
                     help = 'use nesterov in SGD')
-parser.add_argument('--gating_config_path', type=str,
+parser.add_argument('--gating_config_path', type=str, default=None,
                     help = 'path to configuration file containing training parameters')
 
 
@@ -119,8 +119,9 @@ DATASET_NUM_CLASSES = {'imagenet':1000, 'cifar10':10, 'cifar100':100}
 
 def main():
     args = parser.parse_args()
-    with open(args.gating_config_path) as f:
-        setattr(args, "gating_config", json.load(f))
+    if args.gating_config_path is not None:
+        with open(args.gating_config_path) as f:
+            setattr(args, "gating_config", json.load(f))
 
     if args.backup_folder != '' and not os.path.exists(args.backup_folder):
         os.mkdir(args.backup_folder)
