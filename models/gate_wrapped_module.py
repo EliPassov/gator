@@ -45,12 +45,11 @@ def create_wrapped_net(net, mapper, gradient_multiplier=1.0, adaptive=True,
     # get static total cost if it wasn't predefined (to be used by custom resnet which was pruned
     if static_total_cost is None:
         static_total_cost = getattr(mapper, factor_type.replace('factor', 'cost'))
-    print(static_total_cost)
     # create all gate modules
     hyper_edges_to_hooks = create_gating_modules(mapper, gating_class, gate_init_prob, random_init, gate_weights)
 
     if create_multiple_optimizers:
-        param_groups, lr_adjustment_map = [ {'params': net.parameters()}], {}
+        param_groups, lr_adjustment_map = [{'params': net.parameters()}], {}
 
     # link costs and create losses
     for i, h in enumerate(mapper.hyper_edges):

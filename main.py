@@ -271,7 +271,7 @@ def main_worker(gpu, ngpus_per_node, args):
             if isinstance(checkpoint, OrderedDict):
                 checkpoint = {'module.' + k: v for k,v in checkpoint.items()}
                 model.load_state_dict(checkpoint)
-                warnings.warn('Loading al stated dict, no other metadate in checkpoint !!!')
+                warnings.warn('Loading al stated dict, no other metadata in checkpoint !!!')
             else:
                 model.load_state_dict(checkpoint['state_dict'])
             if 'optimizer' in checkpoint:
@@ -337,9 +337,11 @@ def main_worker(gpu, ngpus_per_node, args):
             # TODO: clean this up
             if args.custom_model is not None and args.custom_model == 'CustomResNet50':
                 # get parallel/non parallel model
-                real_model = model.module if args.gpu is None else model
+                real_model = model.module if (isinstance(model, torch.nn.DataParallel) or
+                                              isinstance(model, torch.nn.parallel.DistributedDataParallel)) else model
                 # get channels config when training custom resnet directly or wrapped
-                state_dict['channels_config'] = real_model.net.channels_config if args.net_with_criterion else real_model.channels_config
+                state_dict['channels_config'] = real_model.net.channels_config if args.net_with_criterion \
+                    else real_model.channels_config
             save_checkpoint(state_dict, is_best, file_name, best_file_name)
 
 
