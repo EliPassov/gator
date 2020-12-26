@@ -34,7 +34,8 @@ def get_wrapped_gating_net_and_criteria(net, main_criterion, criteria_weight=0.0
                                         gate_init_prob=0.99, random_init=False, factor_type='flop_factor',
                                         no_last_conv=False, edge_multipliers=None, gradient_secondary_multipliers=None,
                                         aux_classification_losses_modules=None, aux_classification_losses_weights=None,
-                                        aux_classification_lr_multiplier=None, gate_weights=None):
+                                        aux_classification_lr_multiplier=None, gate_weights=None,
+                                        static_total_cost=None):
     mapper_class = ResNetGatesModulesMapper if isinstance(net, ResNet) else NaiveSequentialGatesModulesMapper
 
     if criteria_weight == 0.0:
@@ -42,7 +43,7 @@ def get_wrapped_gating_net_and_criteria(net, main_criterion, criteria_weight=0.0
 
     hooks, auxiliary_criteria, param_groups_lr_adjustment_map = create_wrapped_net(net, mapper_class(net, no_last_conv),
         gradient_multiplier, adaptive, gating_class, gate_init_prob, random_init, factor_type, edge_multipliers,
-        gradient_secondary_multipliers, create_multiple_optimizers=True, gate_weights=gate_weights)
+        gradient_secondary_multipliers, True, gate_weights, static_total_cost)
 
     report_func = channel_gating_reporting
 
