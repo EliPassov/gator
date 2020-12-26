@@ -22,6 +22,8 @@ parser.add_argument('--include_gates', action='store_true', default=False,
                     help='prune with gates and store their weights')
 parser.add_argument('--gating_config_path_for_gate_max_probs', type=str, default=None,
                     help = 'config to pick gate_init_prob from for max probability for gate to clamp the weight in case it is too high')
+parser.add_argument('--new_format', action='store_false', default=True,
+                    help='Use new pytorch save format if version is relevant')
 
 if __name__ == '__main__':
     args = parser.parse_args()
@@ -35,6 +37,8 @@ if __name__ == '__main__':
     if args.include_gates:
         with open(args.gating_config_path_for_gate_max_probs) as f:
             gate_max_probs = json.load(f)['gate_init_prob']
-        pruned_custom_net_from_gated_net(net, args.net_with_criterion, args.gated_weights_path, args.new_weights_path, gate_max_probs)
+        pruned_custom_net_from_gated_net(net, args.net_with_criterion, args.gated_weights_path, args.new_weights_path,
+                                         gate_max_probs, old_format=not args.new_format)
     else:
-        custom_resnet_from_gated_net(net, args.net_with_criterion, args.gated_weights_path, args.new_weights_path)
+        custom_resnet_from_gated_net(net, args.net_with_criterion, args.gated_weights_path, args.new_weights_path,
+                                     old_format=not args.new_format)

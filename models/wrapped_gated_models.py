@@ -13,6 +13,7 @@ from models.gates_mapper import NaiveSequentialGatesModulesMapper, ResNetGatesMo
 from models.net_auxiliary_extension import NetWithAuxiliaryOutputs, CriterionWithAuxiliaryLosses, ClassificationLayerHook
 from models.custom_resnet import custom_resnet_18, custom_resnet_34, custom_resnet_50
 from models.gated_prunning import get_pruned_hooks_weights
+from utils.save_warpper import save_version_aware
 
 
 def channel_gating_reporting(layer, input, target):
@@ -128,7 +129,8 @@ def read_net(net, criterion_name, net_weight_path):
     return wrapped_net, full_state_dict
 
 
-def custom_resnet_from_gated_net(net, criterion_name, net_weight_path, new_file_path=None, no_last_conv=False):
+def custom_resnet_from_gated_net(net, criterion_name, net_weight_path, new_file_path=None, no_last_conv=False,
+                                 old_format=True):
     wrapped_net, full_state_dict = read_net(net, criterion_name, net_weight_path)
     mapper = ResNetGatesModulesMapper(net, no_last_conv)
     channels_config, new_weights_state_dict = create_conv_channels_dict(wrapped_net, mapper)
@@ -138,7 +140,7 @@ def custom_resnet_from_gated_net(net, criterion_name, net_weight_path, new_file_
     new_state_dict['channels_config'] = channels_config
     new_state_dict['state_dict'] = {'module.' + k:v for k,v in new_weights_state_dict.items()}
     if new_file_path is not None:
-        torch.save(new_state_dict, new_file_path)
+        save_version_aware(new_state_dict, new_file_path, old_format)
     else:
         custom_net_func = None
         for ind in ['18', '34', '50']:
@@ -186,7 +188,7 @@ def prune_custom_resnet(net, no_last_conv=False, clamp_init_prob=False, net_conf
 
 
 def pruned_custom_net_from_gated_net(net, criterion_name, net_weight_path, new_file_path, gate_max_probs,
-                                     no_last_conv=False):
+                                     no_last_conv=False, old_format=True):
     wrapped_net, full_state_dict = read_net(net, criterion_name, net_weight_path)
 
     mapper = ResNetGatesModulesMapper(net, no_last_conv)
@@ -211,8 +213,7 @@ def pruned_custom_net_from_gated_net(net, criterion_name, net_weight_path, new_f
     new_net.net.load_state_dict(new_weights_state_dict)
     new_state_dict['state_dict'] = {'module.' + k:v for k,v in new_net.state_dict().items()}
 
-    torch.save(new_state_dict, new_file_path)
-
+    save_version_aware(new_state_dict, new_file_path, old_format)
 
 
 # ResNet18_gating = lambda num_classes=1000, kwargs={}: get_wrapped_gating_net_and_criteria(
