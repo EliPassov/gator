@@ -332,9 +332,12 @@ def main_worker(gpu, ngpus_per_node, args):
                 'state_dict': model.state_dict(),
                 'best_acc1': best_acc1,
                 'optimizer': optimizer.state_dict()}
+            # TODO: clean this up
             if args.custom_model is not None and args.custom_model == 'CustomResNet50':
-                state_dict['channels_config'] = model.channels_config if not args.multiprocessing_distributed \
-                    else model.module.channels_config
+                # get parallel/non parallel model
+                real_model = model.module if args.gpu is None else model
+                # get channels config when training custom resnet directly or wrapped
+                state_dict['channels_config'] = real_model.net.channels_config if args.net_with_criterion else real_model.channels_config
             save_checkpoint(state_dict, is_best, file_name, best_file_name)
 
 
