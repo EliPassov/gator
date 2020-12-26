@@ -29,6 +29,7 @@ from models.custom_resnet import custom_resnet_50
 from models.vgg_fully_convolutional import *
 from models.wrapped_gated_models import *
 from utils.multi_optimizer import MultiGroupDynamicLROptimizer
+from utils.save_warpper import save_version_aware
 
 
 model_names = sorted(name for name in models.__dict__
@@ -116,6 +117,7 @@ best_acc1 = 0
 
 CUSTOM_MODELS = {'CustomResNet50': custom_resnet_50}
 DATASET_NUM_CLASSES = {'imagenet':1000, 'cifar10':10, 'cifar100':100}
+
 
 def main():
     args = parser.parse_args()
@@ -471,12 +473,7 @@ def validate(val_loader, model, criterion, args, writer=None, epoch=None):
 
 def save_checkpoint(state, is_best, filename='checkpoint.pth.tar', best_filename='model_best.pth.tar', old_format=True):
     # check if version is 1.6.0 or above
-    if int(torch.__version__.split('.')[1]) >= 6:
-        torch.save(state, filename, _use_new_zipfile_serialization=(not old_format))
-    else:
-        if not old_format:
-            raise ValueError('cannot save net using new format, torch version is below 1.6.0')
-        torch.save(state, filename)
+    save_version_aware(state, filename, old_format)
     if is_best:
         shutil.copyfile(filename, best_filename)
 
