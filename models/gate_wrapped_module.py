@@ -32,7 +32,7 @@ def create_gating_modules(mapper, gating_class, gate_init_prob, random_init, gat
 def create_wrapped_net(net, mapper, gradient_multiplier=1.0, adaptive=True,
                        gating_class=ModuleChannelsLogisticGatingMasked, gate_init_prob=0.99, random_init=False,
                        factor_type="flop_factor", edge_multipliers=None, gradient_secondary_multipliers=None,
-                       create_multiple_optimizers=False, gate_weights=None):
+                       create_multiple_optimizers=False, gate_weights=None, static_total_cost=None):
     if edge_multipliers is not None:
         assert isinstance(edge_multipliers, list)
         assert len(edge_multipliers) == len(mapper.hyper_edges)
@@ -42,8 +42,10 @@ def create_wrapped_net(net, mapper, gradient_multiplier=1.0, adaptive=True,
     hooks = []
     auxiliary_criteria = []
 
-    static_total_cost = getattr(mapper, factor_type.replace('factor', 'cost'))
-
+    # get static total cost if it wasn't predefined (to be used by custom resnet which was pruned
+    if static_total_cost is None:
+        static_total_cost = getattr(mapper, factor_type.replace('factor', 'cost'))
+    print(static_total_cost)
     # create all gate modules
     hyper_edges_to_hooks = create_gating_modules(mapper, gating_class, gate_init_prob, random_init, gate_weights)
 

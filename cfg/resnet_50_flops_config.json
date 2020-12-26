@@ -2,5 +2,6 @@
   "factor_type": "flop_factor",
   "criteria_weight": 1.0,
   "gradient_multiplier": 0.2,
-  "gate_init_prob": 0.995
+  "gate_init_prob": 0.995,
+  "static_total_cost":76848.0
 }
