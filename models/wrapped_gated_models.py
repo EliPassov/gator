@@ -188,7 +188,7 @@ def prune_custom_resnet(net, no_last_conv=False, clamp_init_prob=False, net_conf
                                                **net_config_kwargs)
 
 
-def pruned_custom_net_from_gated_net(net, criterion_name, net_weight_path, new_file_path, gate_max_probs,
+def pruned_custom_net_from_gated_net(net, criterion_name, net_weight_path, new_file_path, gate_max_probs=None,
                                      no_last_conv=False, old_format=True):
     wrapped_net, full_state_dict = read_net(net, criterion_name, net_weight_path)
 
@@ -207,7 +207,8 @@ def pruned_custom_net_from_gated_net(net, criterion_name, net_weight_path, new_f
     new_sub_net = custom_net_func(channels_config)
     gate_weights = get_pruned_hooks_weights(wrapped_net)
 
-    clamp_gate_weights(gate_weights, gate_max_probs)
+    if gate_max_probs is not None:
+        clamp_gate_weights(gate_weights, gate_max_probs)
 
     new_net, _, _ = get_wrapped_gating_net_and_criteria(new_sub_net, nn.CrossEntropyLoss(), gate_weights=gate_weights)
 

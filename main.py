@@ -201,7 +201,8 @@ def main_worker(gpu, ngpus_per_node, args):
             model = models.__dict__[args.arch](num_classes=num_classes)
     if args.net_with_criterion:
         print("=> creating custom model with criterion'{}'".format(args.net_with_criterion))
-        model, criterion, param_groups_lr_adjustment_map = globals()[args.net_with_criterion](model, args.gating_config)
+        model, criterion, param_groups_lr_adjustment_map = \
+            globals()[args.net_with_criterion](model, getattr(args, 'gating_config', {}))
 
     if args.subdivision > 1:
         assert args.batch_size % args.subdivision == 0
@@ -273,7 +274,12 @@ def main_worker(gpu, ngpus_per_node, args):
                 model.load_state_dict(checkpoint)
                 warnings.warn('Loading al stated dict, no other metadata in checkpoint !!!')
             else:
-                model.load_state_dict(checkpoint['state_dict'])
+                state_dict = checkpoint['state_dict']
+                # if args.gpu is not None and len(state_dict) == len([k for k in state_dict.keys() if k[:7] == 'module.']):
+                #     state_dict = {k[7:]: v for k, v in state_dict.items()}
+                # state_dict = {k.replace('module.net', 'module'): v for k, v in state_dict.items()}
+                model.load_state_dict(state_dict)
+
             if 'optimizer' in checkpoint:
                 optimizer.load_state_dict(checkpoint['optimizer'])
             print("=> loaded checkpoint '{}' (epoch {})"
