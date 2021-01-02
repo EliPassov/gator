@@ -1,6 +1,8 @@
 from torch import nn
 from torchvision.models.resnet import ResNet, BasicBlock, Bottleneck, conv1x1, conv3x3, resnet18, resnet34, resnet50
 
+from models.cifar_resnet import CifarResnet
+
 
 class CustomBasicBlock(BasicBlock):
     def __init__(self, in_channels, conv1_out, conv2_out, stride=1, downsample=None, groups=1, dilation=1,
@@ -42,7 +44,7 @@ class CustomBottleNeck(Bottleneck):
 
 class CustomResNet(ResNet):
     def __init__(self, block, channels_config, num_classes=1000, zero_init_residual=False, groups=1,
-                 replace_stride_with_dilation=None, norm_layer=None):
+                 replace_stride_with_dilation=None, norm_layer=None, cifar_resnet=False):
         super(ResNet, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
@@ -56,14 +58,24 @@ class CustomResNet(ResNet):
         if len(replace_stride_with_dilation) != 3:
             raise ValueError("replace_stride_with_dilation should be None "
                              "or a 3-element tuple, got {}".format(replace_stride_with_dilation))
+
+        self.cifar_resnet=cifar_resnet
+        self.num_layers = 3 if cifar_resnet else 4
+
         self.groups = groups
         self.channels_config = channels_config
         first_channels = channels_config['conv1']
-        self.conv1 = nn.Conv2d(3, first_channels, kernel_size=7, stride=2, padding=3,
-                               bias=False)
+        if cifar_resnet:
+            self.conv1 = nn.Conv2d(3, first_channels, kernel_size=3, stride=1, padding=1, bias=False)
+        else:
+            self.conv1 = nn.Conv2d(3, first_channels, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = norm_layer(first_channels)
         self.relu = nn.ReLU(inplace=True)
-        self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        if cifar_resnet:
+            # a bit misleading but makes it generic
+            self.maxpool = nn.Sequential()
+        else:
+            self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
 
         self.prev_block_out = first_channels
         self.current_channel = 0
@@ -72,7 +84,10 @@ class CustomResNet(ResNet):
         self.layer1 = self._make_layer_custom(block, channels_config['layer1'])
         self.layer2 = self._make_layer_custom(block, channels_config['layer2'], stride=2, dilate=replace_stride_with_dilation[0])
         self.layer3 = self._make_layer_custom(block, channels_config['layer3'], stride=2, dilate=replace_stride_with_dilation[1])
-        self.layer4 = self._make_layer_custom(block, channels_config['layer4'], stride=2, dilate=replace_stride_with_dilation[2])
+        if self.cifar_resnet:
+            self.layer4 = nn.Sequential()
+        else:
+            self.layer4 = self._make_layer_custom(block, channels_config['layer4'], stride=2, dilate=replace_stride_with_dilation[2])
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(self.prev_block_out, num_classes)
 
@@ -129,14 +144,18 @@ class CustomResNet(ResNet):
 
     def compute_flops_memory(self):
         cost = get_conv_cost(self.conv1)
-        flops_cost = cost / 4
+        if self.cifar_resnet:
+            flops_cost = cost
+            downsample = 1
+        else:
+            flops_cost = cost / 4
+            downsample = 4
         memory_cost = cost
-        downsample = 4
 
         # check if BasicBlock or Bottleneck
         num_convs = 3 if hasattr(self.layer1[0], 'conv3') else 2
 
-        for i in range(1, 5):
+        for i in range(1, self.num_layers + 1):
             if i > 1 :
                 downsample *= 2
             layer = getattr(self, 'layer'+str(i))
@@ -161,14 +180,15 @@ def get_conv_cost(m):
 
 
 def filter_mapping_from_default_resnet(net):
-    assert isinstance(net, ResNet)
+    assert isinstance(net, ResNet) or isinstance(net, CifarResnet)
+    num_layer = 3 if isinstance(net, CifarResnet) else 4
     channels_config = { 'conv1': net.conv1.out_channels}
-    for l in range(1, 5):
+    for l in range(1, num_layer + 1):
         layer_name = 'layer' + str(l)
         layer = getattr(net, layer_name)
         layer_config = {}
         for j, block in enumerate(layer.children()):
-            num_convs = 2 if block == BasicBlock else 3
+            num_convs = 2 if isinstance(block, BasicBlock) else 3
             layer_config[str(j)] = {}
             for c in range(1, num_convs + 1):
                 conv_name = 'conv'+str(c)
@@ -189,14 +209,21 @@ def custom_resnet_50(channels_config, num_classes=1000):
     return CustomResNet(CustomBottleNeck, channels_config, num_classes)
 
 
+def custom_resnet_56(channels_config, num_classes=10):
+    return CustomResNet(CustomBasicBlock, channels_config, num_classes, cifar_resnet=True)
+
+
 if __name__ == '__main__':
     # import torch
     # channels_config = torch.load('/home/eli/Eli/Training/Imagenet/resnet50/resnet50_pre_0_995_w_0_25_gm_0_2_w_0_5/net_e_80_custom_resnet')['channels_config']
     # custom_net = custom_resnet_50(channels_config, num_classes=1000).cuda()
 
+    # from models.cifar_resnet import resnet56
+    # net = resnet56(10)
     net = resnet50(False)
     channels_config = filter_mapping_from_default_resnet(net)
     custom_net = custom_resnet_50(channels_config)
+    # custom_net = custom_resnet_56(channels_config)
     custom_net = custom_net.cuda()
     import torch
     custom_net.eval()

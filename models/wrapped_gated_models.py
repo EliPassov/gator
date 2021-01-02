@@ -6,13 +6,14 @@ import torch
 from torch import nn
 from torchvision.models.resnet import ResNet, resnet18, resnet34, resnet50
 
+from models.cifar_resnet import CifarResnet
 from models.channel_gates import ModuleChannelsLogisticGating, ModuleChannelsLogisticGatingMasked, \
     logistic_quantile_funciton
+from models.custom_resnet import custom_resnet_50
 from models.gate_wrapped_module import create_wrapped_net, create_conv_channels_dict
 from models.gates_mapper import NaiveSequentialGatesModulesMapper, ResNetGatesModulesMapper
-from models.net_auxiliary_extension import NetWithAuxiliaryOutputs, CriterionWithAuxiliaryLosses, ClassificationLayerHook
-from models.custom_resnet import custom_resnet_18, custom_resnet_34, custom_resnet_50
 from models.gated_prunning import get_pruned_hooks_weights
+from models.net_auxiliary_extension import NetWithAuxiliaryOutputs, CriterionWithAuxiliaryLosses, ClassificationLayerHook
 from utils.save_warpper import save_version_aware
 
 
@@ -36,7 +37,8 @@ def get_wrapped_gating_net_and_criteria(net, main_criterion, criteria_weight=0.0
                                         aux_classification_losses_modules=None, aux_classification_losses_weights=None,
                                         aux_classification_lr_multiplier=None, gate_weights=None,
                                         static_total_cost=None):
-    mapper_class = ResNetGatesModulesMapper if isinstance(net, ResNet) else NaiveSequentialGatesModulesMapper
+    mapper_class = ResNetGatesModulesMapper if (isinstance(net, ResNet) or isinstance(net, CifarResnet)) \
+        else NaiveSequentialGatesModulesMapper
 
     if criteria_weight == 0.0:
         warnings.warn("created gating module with 0 weight, make sure you are not training it")
@@ -188,8 +190,9 @@ def prune_custom_resnet(net, no_last_conv=False, clamp_init_prob=False, net_conf
                                                **net_config_kwargs)
 
 
-def pruned_custom_net_from_gated_net(net, criterion_name, net_weight_path, new_file_path, gate_max_probs=None,
-                                     no_last_conv=False, old_format=True):
+def pruned_custom_net_from_gated_net(net, criterion_name, net_weight_path, new_file_path,
+                                     custom_net_func=custom_resnet_50, gate_max_probs=None, no_last_conv=False,
+                                     old_format=True):
     wrapped_net, full_state_dict = read_net(net, criterion_name, net_weight_path)
 
     mapper = ResNetGatesModulesMapper(net, no_last_conv)
@@ -200,10 +203,6 @@ def pruned_custom_net_from_gated_net(net, criterion_name, net_weight_path, new_f
     del new_state_dict['optimizer']
     new_state_dict['channels_config'] = channels_config
 
-    custom_net_func = custom_resnet_50
-    for ind in ['18', '34', '50']:
-        if ind in type(net).__name__:
-            custom_net_func = globals()['custom_resnet_' + ind]
     new_sub_net = custom_net_func(channels_config)
     gate_weights = get_pruned_hooks_weights(wrapped_net)
 
@@ -224,7 +223,7 @@ def pruned_custom_net_from_gated_net(net, criterion_name, net_weight_path, new_f
 # ResNet34_gating = lambda num_classes=1000, kwargs={}: get_wrapped_gating_net_and_criteria(
 #     resnet34(True, num_classes=num_classes), nn.CrossEntropyLoss(), **kwargs)
 
-ResNet50_gating = lambda net, kwargs={}: get_wrapped_gating_net_and_criteria(net, nn.CrossEntropyLoss(), **kwargs)
+ResNet_gating = lambda net, kwargs={}: get_wrapped_gating_net_and_criteria(net, nn.CrossEntropyLoss(), **kwargs)
 
 Resnet50_aux_losses = lambda num_classes=1000, kwargs={}: get_wrapped_aux_net(net, nn.CrossEntropyLoss(), **kwargs)
 
