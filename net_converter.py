@@ -3,7 +3,8 @@ import json
 
 import torch
 from torchvision.models.resnet import resnet50
-from models.custom_resnet import custom_resnet_50
+from models.cifar_resnet import resnet56
+from models.custom_resnet import custom_resnet_50, custom_resnet_56
 
 from models.wrapped_gated_models import custom_resnet_from_gated_net, pruned_custom_net_from_gated_net
 
@@ -31,8 +32,15 @@ if __name__ == '__main__':
         assert args.resume is not None
         channels_config = torch.load(args.gated_weights_path)['channels_config']
         net = custom_resnet_50(channels_config, 1000)
+        custom_net_func = custom_resnet_50
+    elif args.net_name == 'resnet56':
+        net = resnet56(10)
+        custom_net_func = custom_resnet_56
+    elif args.net_name == 'resnet50':
+        net = resnet50(False, num_classes=1000)
+        custom_net_func = custom_resnet_50
     else:
-        net = globals()[args.net_name](1000)
+        raise ValueError('Unsupported net type ' + args.net_name)
 
     if args.include_gates:
         gate_max_probs = None
@@ -40,7 +48,7 @@ if __name__ == '__main__':
             with open(args.gating_config_path_for_gate_max_probs) as f:
                 gate_max_probs = json.load(f)['gate_init_prob']
         pruned_custom_net_from_gated_net(net, args.net_with_criterion, args.gated_weights_path, args.new_weights_path,
-                                         gate_max_probs, old_format=not args.new_format)
+                                         custom_net_func, gate_max_probs, old_format=not args.new_format)
     else:
         custom_resnet_from_gated_net(net, args.net_with_criterion, args.gated_weights_path, args.new_weights_path,
-                                     old_format=not args.new_format)
+                                     custom_net_func, old_format=not args.new_format)

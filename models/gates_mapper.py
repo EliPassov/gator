@@ -161,7 +161,9 @@ class ResNetGatesModulesMapper(GatesModulesMapper):
         inter_block_hyper_edge = self.create_hyper_edge(self.net.conv1.out_channels, [(self.net.conv1, False)], ['conv1'])
         downsample = 4 # stride 2 in conv + maxpool
 
-        for i in range(1, 5):
+        num_layers = 4 if hasattr(self.net, 'layer4') else 3
+
+        for i in range(1, num_layers + 1):
             layer_name = 'layer' + str(i)
             layer = getattr(self.net, layer_name)
             for j, block in enumerate(layer.children()):
@@ -223,7 +225,9 @@ class ResNetGatesModulesMapper(GatesModulesMapper):
         self.replacement_map = {}
         self.replacement_map[self.net.conv1] = ReferenceToSetter(self.net, 'conv1')
         self.replacement_map[self.net.bn1] = ReferenceToSetter(self.net, 'bn1')
-        for i in range(1, 5):
+        num_layers = 4 if hasattr(self.net, 'layer4') else 3
+
+        for i in range(1, num_layers + 1):
             layer = getattr(self.net, 'layer' + str(i))
             for j, block in enumerate(layer.children()):
                 if j == 0 and (i > 1 or isinstance(block, Bottleneck)):

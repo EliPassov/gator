@@ -25,7 +25,8 @@ import torchvision.models as models
 from tensorboardX import SummaryWriter
 
 from data.dataset_factory import get_train_test_datasets
-from models.custom_resnet import custom_resnet_50
+from models.cifar_resnet import *
+from models.custom_resnet import custom_resnet_50, custom_resnet_56
 from models.vgg_fully_convolutional import *
 from models.wrapped_gated_models import *
 from utils.multi_optimizer import MultiGroupDynamicLROptimizer
@@ -65,6 +66,10 @@ parser.add_argument('--lr-drop-rate', default=0.1, type=float, help='learning ra
                     dest='lr_drop_rate')
 parser.add_argument('--epoch-lr-step', default=30, type=float, help='num of epochs before learning rate drop',
                     dest='epoch_lr_step')
+parser.add_argument('--lr_steps', type=str,
+                    help='epochs at which to drop the learning rate')
+parser.add_argument('--lr_rates', type=str,
+                    help='rates to use before and after each step')
 parser.add_argument('--momentum', default=0.9, type=float, metavar='M',
                     help='momentum')
 parser.add_argument('--wd', '--weight-decay', default=1e-4, type=float,
@@ -110,6 +115,8 @@ parser.add_argument('--nesterov', action='store_true', default=False,
                     help = 'use nesterov in SGD')
 parser.add_argument('--gating_config_path', type=str, default=None,
                     help = 'path to configuration file containing training parameters')
+parser.add_argument('--save_interval', type=int, default=1,
+                    help = 'number of epochs after which to save')
 
 
 best_acc1 = 0
@@ -117,6 +124,16 @@ best_acc1 = 0
 
 CUSTOM_MODELS = {'CustomResNet50': custom_resnet_50}
 DATASET_NUM_CLASSES = {'imagenet':1000, 'cifar10':10, 'cifar100':100}
+
+def get_actual_model(model):
+    """
+    Returns the inner model in case of parallel wrapping
+    :param model:
+    :return:
+    """
+    actual_model = model.module if (isinstance(model, torch.nn.DataParallel) or
+                                  isinstance(model, torch.nn.parallel.DistributedDataParallel)) else model
+    return actual_model
 
 
 def main():
@@ -186,12 +203,15 @@ def main_worker(gpu, ngpus_per_node, args):
     num_classes = DATASET_NUM_CLASSES[args.dataset_name]
     if args.custom_model:
         print("=> creating custom model '{}'".format(args.custom_model))
-        if args.custom_model == 'CustomResNet50':
+        if 'CustomResNet' in args.custom_model:
             assert args.resume is not None
             channels_config = torch.load(args.resume)['channels_config']
-            model = custom_resnet_50(channels_config, num_classes)
+            model_name = 'custom_resnet_' + args.custom_model[-2:]
+            model = globals()[model_name](channels_config, num_classes)
         elif 'vgg' in args.custom_model.lower():
             model = VGGFullyConv(args.custom_model, num_classes)
+        elif 'resnet56' in args.custom_model:
+            model = globals()[args.custom_model](num_classes)
     else:
         if args.pretrained:
             print("=> using pre-trained model '{}'".format(args.arch))
@@ -237,6 +257,12 @@ def main_worker(gpu, ngpus_per_node, args):
         else:
             model = torch.nn.DataParallel(model).cuda()
 
+    if args.lr_steps is not None:
+        assert args.lr_rates is not None
+        args.lr_steps = [int(a) for a in args.lr_steps.split(',')]
+        args.lr_rates = [float(a) for a in args.lr_rates.split(',')]
+        assert len(args.lr_steps) + 1 == len(args.lr_rates)
+
     # define loss function (criterion) and optimizer
     if criterion is None:  # if it wan't already defined using the net_with_criterion option
         criterion = nn.CrossEntropyLoss()
@@ -278,9 +304,18 @@ def main_worker(gpu, ngpus_per_node, args):
                 # if args.gpu is not None and len(state_dict) == len([k for k in state_dict.keys() if k[:7] == 'module.']):
                 #     state_dict = {k[7:]: v for k, v in state_dict.items()}
                 # state_dict = {k.replace('module.net', 'module'): v for k, v in state_dict.items()}
-                model.load_state_dict(state_dict)
+                if args.net_with_criterion is not None and type(get_actual_model(model).net) in [CifarResnet, ResNet]:
+                    state_dict = {k.replace('module', 'module.net'): v for k, v in state_dict.items()}
+                    problematic_keys = model.load_state_dict(state_dict, strict=False)
+                    # sanity checks because strict was disabled
+                    assert len(problematic_keys.unexpected_keys) == 0
+                    assert all('forward_hooks' in p for p in problematic_keys.missing_keys)
+                else:
+                    model.load_state_dict(state_dict)
 
-            if 'optimizer' in checkpoint:
+
+            if 'optimizer' in checkpoint and not (args.net_with_criterion is not None
+                                                  and type(get_actual_model(model).net) in [CifarResnet, ResNet]):
                 optimizer.load_state_dict(checkpoint['optimizer'])
             print("=> loaded checkpoint '{}' (epoch {})"
                   .format(args.resume, checkpoint['epoch'] if 'epoch' in checkpoint else 0))
@@ -317,7 +352,10 @@ def main_worker(gpu, ngpus_per_node, args):
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             train_sampler.set_epoch(epoch)
-        lr_batch_adjuster = adjust_learning_rate_and_get_batch_adjuster(optimizer, epoch, args)
+        if args.lr_steps is None:
+            lr_batch_adjuster = adjust_learning_rate_and_get_batch_adjuster(optimizer, epoch, args)
+        else:
+            lr_batch_adjuster = adjust_learning_rate(optimizer, epoch, args)
 
         # train for one epoch
         train(train_loader, model, criterion, optimizer, epoch, args, writer, lr_batch_adjuster)
@@ -332,8 +370,9 @@ def main_worker(gpu, ngpus_per_node, args):
         file_name = os.path.join(args.backup_folder, 'net_e_{}'.format(epoch + 1))
         best_file_name = os.path.join(args.backup_folder, 'net_best')
 
-        if not args.multiprocessing_distributed or (args.multiprocessing_distributed
-                and args.rank % ngpus_per_node == 0):
+        if (not args.multiprocessing_distributed or (args.multiprocessing_distributed
+                and args.rank % ngpus_per_node == 0)) and \
+                ((((epoch + 1) % args.save_interval) == 0) or ((epoch + 1) == args.epochs)):
             state_dict = {
                 'epoch': epoch + 1,
                 'arch': args.custom_model if args.custom_model is not None else args.arch,
@@ -343,11 +382,10 @@ def main_worker(gpu, ngpus_per_node, args):
             # TODO: clean this up
             if args.custom_model is not None and args.custom_model == 'CustomResNet50':
                 # get parallel/non parallel model
-                real_model = model.module if (isinstance(model, torch.nn.DataParallel) or
-                                              isinstance(model, torch.nn.parallel.DistributedDataParallel)) else model
+                actual_model = get_actual_model(model)
                 # get channels config when training custom resnet directly or wrapped
-                state_dict['channels_config'] = real_model.net.channels_config if args.net_with_criterion \
-                    else real_model.channels_config
+                state_dict['channels_config'] = actual_model.net.channels_config if args.net_with_criterion \
+                    else actual_model.channels_config
             save_checkpoint(state_dict, is_best, file_name, best_file_name)
 
 
@@ -535,7 +573,7 @@ def adjust_lr_in_optimizer(optimizer, lr):
 def adjust_learning_rate(optimizer, epoch, args):
     assert len(args.lr_steps) + 1 == len(args.lr_rates)
     i = 0
-    while epoch > args.lr_steps[i] and i < len(args.lr_steps):
+    while i < len(args.lr_steps) and epoch > args.lr_steps[i]:
         i += 1
     adjust_lr_in_optimizer(optimizer, args.lr_rates[i])
 
