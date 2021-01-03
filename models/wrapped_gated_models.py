@@ -132,9 +132,9 @@ def read_net(net, criterion_name, net_weight_path):
     return wrapped_net, full_state_dict
 
 
-def custom_resnet_from_gated_net(net, criterion_name, net_weight_path, new_file_path=None, no_last_conv=False,
-                                 old_format=True):
-    wrapped_net, full_state_dict = read_net(net, criterion_name, net_weight_path)
+def custom_resnet_from_gated_net(net, criterion_name, gated_weight_path, new_file_path=None,
+                                 custom_net_func=custom_resnet_50, no_last_conv=False, old_format=True):
+    wrapped_net, full_state_dict = read_net(net, criterion_name, gated_weight_path)
     mapper = ResNetGatesModulesMapper(net, no_last_conv)
     channels_config, new_weights_state_dict = create_conv_channels_dict(wrapped_net, mapper)
 
@@ -145,10 +145,6 @@ def custom_resnet_from_gated_net(net, criterion_name, net_weight_path, new_file_
     if new_file_path is not None:
         save_version_aware(new_state_dict, new_file_path, old_format)
     else:
-        custom_net_func = None
-        for ind in ['18', '34', '50']:
-            if ind in net_name:
-                custom_net_func = globals()['custom_resnet_' + ind]
         return custom_net_func(channels_config)
 
 
