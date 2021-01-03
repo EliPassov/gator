@@ -28,11 +28,14 @@ parser.add_argument('--new_format', action='store_true', default=False,
 
 if __name__ == '__main__':
     args = parser.parse_args()
-    if args.net_name == 'CustomResNet50':
-        assert args.resume is not None
+    if 'CustomResNet' in args.net_name:
+        assert args.gated_weights_path is not None
         channels_config = torch.load(args.gated_weights_path)['channels_config']
-        net = custom_resnet_50(channels_config, 1000)
-        custom_net_func = custom_resnet_50
+        net_name = 'custom_resnet_' + args.net_name[-2:]
+        net_constructor = globals()[net_name]
+        num_classes = 1000 if net_name[-2:] == '50' else 10
+        net = net_constructor(channels_config, num_classes)
+        custom_net_func = net_constructor
     elif args.net_name == 'resnet56':
         net = resnet56(10)
         custom_net_func = custom_resnet_56
