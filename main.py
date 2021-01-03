@@ -122,8 +122,8 @@ parser.add_argument('--save_interval', type=int, default=1,
 best_acc1 = 0
 
 
-CUSTOM_MODELS = {'CustomResNet50': custom_resnet_50}
 DATASET_NUM_CLASSES = {'imagenet':1000, 'cifar10':10, 'cifar100':100}
+
 
 def get_actual_model(model):
     """
@@ -380,7 +380,7 @@ def main_worker(gpu, ngpus_per_node, args):
                 'best_acc1': best_acc1,
                 'optimizer': optimizer.state_dict()}
             # TODO: clean this up
-            if args.custom_model is not None and args.custom_model == 'CustomResNet50':
+            if args.custom_model is not None and 'CustomResNet' in args.custom_model:
                 # get parallel/non parallel model
                 actual_model = get_actual_model(model)
                 # get channels config when training custom resnet directly or wrapped
