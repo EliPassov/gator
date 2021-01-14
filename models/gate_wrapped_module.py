@@ -176,6 +176,9 @@ def create_conv_channels_dict(net_with_hooks, mapper, new_modules_mapping=False)
         # take only out channels of convolutions
         for i, (c, s) in enumerate(hyper_edge.convs_and_sides):
             new_modules = conv_to_new_modules[mapper.reverse_alias_map.get((c, s), c)]
+            # skip edge if entirely pruned
+            if new_modules[0] is None:
+                continue
             if not s:
                 dot_string_to_tree_dict(conv_channels_dict, hyper_edge.conv_names[i], num_channels)
 
