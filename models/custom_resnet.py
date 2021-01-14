@@ -120,6 +120,8 @@ class CustomResNet(ResNet):
         downsample = None
         previous_dilation = self.dilation
         num_convs = 3 if block == CustomBottleNeck else 2
+        blocks = []
+        block_indices = list(layer_config.keys())
         if dilate:
             self.dilation *= stride
             stride = 1
@@ -130,17 +132,21 @@ class CustomResNet(ResNet):
                 norm_layer(downsample_out_channels),
             )
 
-        layers = []
-        channels = self.get_and_check_channels(num_convs, layer_config['0'])
-        layers.append(block(*channels, stride, downsample, self.groups, previous_dilation, norm_layer))
-        self.prev_block_out = channels[-1]
-        block_index = 1
-        while str(block_index) in layer_config:
+        if '0' in block_indices:
+            channels = self.get_and_check_channels(num_convs, layer_config['0'])
+            blocks.append((0, block(*channels, stride, downsample, self.groups, previous_dilation, norm_layer)))
+            self.prev_block_out = channels[-1]
+            block_indices.remove('0')
+        # iterate on indices which have not been removed (whole blocks pruned)
+        for block_index in block_indices:
             channels = self.get_and_check_channels(num_convs, layer_config[str(block_index)])
-            layers.append(block(*channels, groups=self.groups, dilation=self.dilation, norm_layer=norm_layer))
-            block_index += 1
+            blocks.append((block_index, block(*channels, groups=self.groups, dilation=self.dilation, norm_layer=norm_layer)))
 
-        return nn.Sequential(*layers)
+        result = nn.Sequential()
+        for block_index, block_module in blocks:
+            result.add_module(str(block_index), block_module)
+        return result
+
 
     def compute_flops_memory(self):
         cost = get_conv_cost(self.conv1)
@@ -218,12 +224,12 @@ if __name__ == '__main__':
     # channels_config = torch.load('/home/eli/Eli/Training/Imagenet/resnet50/resnet50_pre_0_995_w_0_25_gm_0_2_w_0_5/net_e_80_custom_resnet')['channels_config']
     # custom_net = custom_resnet_50(channels_config, num_classes=1000).cuda()
 
-    # from models.cifar_resnet import resnet56
-    # net = resnet56(10)
-    net = resnet50(False)
+    from models.cifar_resnet import resnet56
+    net = resnet56(10)
+    # net = resnet50(False)
     channels_config = filter_mapping_from_default_resnet(net)
-    custom_net = custom_resnet_50(channels_config)
-    # custom_net = custom_resnet_56(channels_config)
+    # custom_net = custom_resnet_50(channels_config)
+    custom_net = custom_resnet_56(channels_config)
     custom_net = custom_net.cuda()
     import torch
     custom_net.eval()
@@ -231,7 +237,7 @@ if __name__ == '__main__':
     res = custom_net(sample)
 
     print(custom_net.compute_flops_memory())
-    print(custom_net)
+    # print(custom_net)
 
     # import torch
     # from models.gates_mapper import ResNetGatesModulesMapper

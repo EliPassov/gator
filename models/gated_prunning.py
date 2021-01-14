@@ -135,6 +135,10 @@ class ConvToPrune:
     def get_pruned_conv(self):
         if self.in_channels_to_keep is None and self.out_channels_to_keep is None:
             raise ValueError('Both in and out channels are not set for pruning')
+        # layer completely pruned
+        elif (self.in_channels_to_keep is not None and int(self.in_channels_to_keep.sum()) == 0) or \
+                (self.out_channels_to_keep is not None and int(self.out_channels_to_keep.sum()) == 0):
+            return None, None
 
         new_in_channels = self.in_channels_to_keep if self.in_channels_to_keep is not None else torch.ones(self.conv.in_channels).long()
         new_out_channels = self.out_channels_to_keep if self.out_channels_to_keep is not None else torch.ones(self.conv.out_channels).long()
