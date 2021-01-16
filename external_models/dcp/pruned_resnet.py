@@ -168,8 +168,16 @@ class PrunedResNet(nn.Module):
         return x
 
 
+def PrunedResnet30():
+    return PrunedResNet(50, 0.3)
+
+
 def PrunedResnet50():
     return PrunedResNet(50, 0.5)
+
+
+def PrunedResnet70():
+    return PrunedResNet(50, 0.7)
 
 
 if __name__ == '__main__':
@@ -182,5 +190,3 @@ if __name__ == '__main__':
     sample = torch.rand((8, 3, 224, 224)).cuda()
     print(model)
     print(model(sample).argmax(1))
-
-
