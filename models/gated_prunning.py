@@ -176,7 +176,8 @@ class ConvToPrune:
 def get_pruned_hooks_weights(net_with_hooks):
     new_weights = []
     for h in net_with_hooks.forward_hooks:
-        new_weights.append(h.gating_module.gating_weights.data[h.gating_module.active_channels_mask.nonzero()[:, 0]])
+        if len(h.gating_module.active_channels_mask.nonzero()[:, 0]) > 0: # don't add pruned blocks
+            new_weights.append(h.gating_module.gating_weights.data[h.gating_module.active_channels_mask.nonzero()[:, 0]])
     return new_weights
 
 
