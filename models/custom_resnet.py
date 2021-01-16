@@ -148,7 +148,7 @@ class CustomResNet(ResNet):
         return result
 
 
-    def compute_flops_memory(self):
+    def compute_flops_memory(self, include_fc=True):
         cost = get_conv_cost(self.conv1)
         if self.cifar_resnet:
             flops_cost = cost
@@ -172,10 +172,17 @@ class CustomResNet(ResNet):
             block_num = 0
             while hasattr(layer, str(block_num)):
                 for j in range(1, num_convs + 1):
-                    cost = get_conv_cost(getattr(layer[block_num], 'conv' + str(j)))
-                    flops_cost += cost / (downsample ** 2)
+                    conv = getattr(layer[block_num], 'conv' + str(j))
+                    cost = get_conv_cost(conv)
+                    flops_cost += cost / (conv.groups * downsample ** 2)
                     memory_cost += cost
                 block_num += 1
+
+        if include_fc:
+            fc_cost = self.fc.in_features * self.fc.out_features
+            flops_cost += fc_cost / (224**2)
+            memory_cost += fc_cost
+
         return flops_cost, memory_cost
 
 
