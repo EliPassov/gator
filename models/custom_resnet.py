@@ -147,7 +147,6 @@ class CustomResNet(ResNet):
             result.add_module(str(block_index), block_module)
         return result
 
-
     def compute_flops_memory(self, include_fc=True):
         cost = get_conv_cost(self.conv1)
         if self.cifar_resnet:

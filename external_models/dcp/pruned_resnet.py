@@ -1,3 +1,7 @@
+# model imported from:
+# https://github.com/SCUT-AILab/DCP/blob/master/dcp/models/pruned_resnet.py
+# with some additions
+
 # copy from pytorch-torchvision-models-resnet
 import math
 
@@ -166,6 +170,46 @@ class PrunedResNet(nn.Module):
         x = self.fc(x)
 
         return x
+
+    # copy pasted from custom_resnet, didn't find how to use the non static method as static
+    def compute_flops_memory(self, include_fc=True):
+        cost = get_conv_cost(self.conv1)
+        flops_cost = cost / 4
+        downsample = 4
+        memory_cost = cost
+
+        # check if BasicBlock or Bottleneck
+        num_convs = 3 if hasattr(self.layer1[0], 'conv3') else 2
+
+        for i in range(1, 5):
+            if i > 1 :
+                downsample *= 2
+            layer = getattr(self, 'layer'+str(i))
+            if layer[0].downsample is not None:
+                cost = get_conv_cost(layer[0].downsample[0])
+                flops_cost += cost / (downsample ** 2)
+                memory_cost += cost
+            block_num = 0
+            while hasattr(layer, str(block_num)):
+                for j in range(1, num_convs + 1):
+                    conv = getattr(layer[block_num], 'conv' + str(j))
+                    cost = get_conv_cost(conv)
+                    flops_cost += cost / (conv.groups * downsample ** 2)
+                    memory_cost += cost
+                block_num += 1
+
+        if include_fc:
+            fc_cost = self.fc.in_features * self.fc.out_features
+            flops_cost += fc_cost / (224**2)
+            memory_cost += fc_cost
+
+        return flops_cost, memory_cost
+
+
+def get_conv_cost(m):
+    assert isinstance(m, nn.Conv2d)
+    res = m.in_channels * m.out_channels * m.kernel_size[0] * m.kernel_size[1] / (m.dilation[0] * m.dilation[1])
+    return res
 
 
 def PrunedResnet30(num_classes=1000):
