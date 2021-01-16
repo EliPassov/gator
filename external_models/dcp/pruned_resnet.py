@@ -168,16 +168,16 @@ class PrunedResNet(nn.Module):
         return x
 
 
-def PrunedResnet30():
-    return PrunedResNet(50, 0.3)
+def PrunedResnet30(num_classes=1000):
+    return PrunedResNet(50, 0.3, num_classes)
 
 
-def PrunedResnet50():
-    return PrunedResNet(50, 0.5)
+def PrunedResnet50(num_classes=1000):
+    return PrunedResNet(50, 0.5, num_classes)
 
 
-def PrunedResnet70():
-    return PrunedResNet(50, 0.7)
+def PrunedResnet70(num_classes=1000):
+    return PrunedResNet(50, 0.7, num_classes)
 
 
 if __name__ == '__main__':

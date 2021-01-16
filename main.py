@@ -25,6 +25,7 @@ import torchvision.models as models
 from tensorboardX import SummaryWriter
 
 from data.dataset_factory import get_train_test_datasets
+from external_models.dcp.pruned_resnet import PrunedResnet30, PrunedResnet50, PrunedResnet70
 from models.cifar_resnet import *
 from models.custom_resnet import custom_resnet_50, custom_resnet_56
 from models.vgg_fully_convolutional import *
@@ -210,7 +211,7 @@ def main_worker(gpu, ngpus_per_node, args):
             model = globals()[model_name](channels_config, num_classes)
         elif 'vgg' in args.custom_model.lower():
             model = VGGFullyConv(args.custom_model, num_classes)
-        elif 'resnet56' in args.custom_model:
+        elif 'resnet56' in args.custom_model or 'PrunedResnet' in args.custom_model:
             model = globals()[args.custom_model](num_classes)
     else:
         if args.pretrained:
@@ -302,7 +303,7 @@ def main_worker(gpu, ngpus_per_node, args):
             else:
                 state_dict = checkpoint['state_dict']
                 # if args.gpu is not None and len(state_dict) == len([k for k in state_dict.keys() if k[:7] == 'module.']):
-                #     state_dict = {k[7:]: v for k, v in state_dict.items()}
+                # state_dict = {k[7:]: v for k, v in state_dict.items()}
                 # state_dict = {k.replace('module.net', 'module'): v for k, v in state_dict.items()}
                 if args.net_with_criterion is not None and type(get_actual_model(model).net) in [CifarResnet, ResNet]:
                     state_dict = {k.replace('module', 'module.net'): v for k, v in state_dict.items()}
