@@ -325,14 +325,7 @@ def main_worker(gpu, ngpus_per_node, args):
             raise ValueError("=> no checkpoint found at '{}'".format(args.resume))
 
     if args.create_old_format:
-        save_checkpoint({
-            'epoch': checkpoint['epoch'],
-            'arch': checkpoint['arch'],
-            'state_dict': checkpoint['state_dict'],
-            'best_acc1': checkpoint['best_acc1'],
-            'optimizer': checkpoint['optimizer'],
-        }, False, args.resume + 'old', old_format=True)
-        print('Saving a copy with old format')
+        save_version_aware(checkpoint, filename=args.resume + 'old', old_format=True)
         exit(0)
 
     cudnn.benchmark = True
@@ -363,31 +356,24 @@ def main_worker(gpu, ngpus_per_node, args):
 
         # evaluate on validation set
         acc1 = validate(val_loader, model, criterion, args, writer, epoch)
+        if isinstance(acc1, torch.Tensor):
+            acc1=acc1.item()
 
         # remember best acc@1 and save checkpoint
         is_best = acc1 > best_acc1
         best_acc1 = max(acc1, best_acc1)
 
-        file_name = os.path.join(args.backup_folder, 'net_e_{}'.format(epoch + 1))
-        best_file_name = os.path.join(args.backup_folder, 'net_best')
+        architecture = args.custom_model if args.custom_model is not None else args.arch
+
+        if is_best:
+            best_file_name = os.path.join(args.backup_folder, 'net_best')
+            save_checkpoint(model, epoch, architecture, best_acc1, optimizer, best_file_name)
 
         if (not args.multiprocessing_distributed or (args.multiprocessing_distributed
                 and args.rank % ngpus_per_node == 0)) and \
                 ((((epoch + 1) % args.save_interval) == 0) or ((epoch + 1) == args.epochs)):
-            state_dict = {
-                'epoch': epoch + 1,
-                'arch': args.custom_model if args.custom_model is not None else args.arch,
-                'state_dict': model.state_dict(),
-                'best_acc1': best_acc1,
-                'optimizer': optimizer.state_dict()}
-            # TODO: clean this up
-            if args.custom_model is not None and 'CustomResNet' in args.custom_model:
-                # get parallel/non parallel model
-                actual_model = get_actual_model(model)
-                # get channels config when training custom resnet directly or wrapped
-                state_dict['channels_config'] = actual_model.net.channels_config if args.net_with_criterion \
-                    else actual_model.channels_config
-            save_checkpoint(state_dict, is_best, file_name, best_file_name)
+            file_name = os.path.join(args.backup_folder, 'net_e_{}'.format(epoch + 1))
+            save_checkpoint(model, epoch, architecture, best_acc1, optimizer, file_name)
 
 
 def train(train_loader, model, criterion, optimizer, epoch, args, writer=None, lr_batch_adjuster=None):
@@ -445,13 +431,8 @@ def train(train_loader, model, criterion, optimizer, epoch, args, writer=None, l
             progress.display(i)
         if writer is not None and i % 100 == 0:
             file_name = os.path.join(args.backup_folder, 'net_backup')
-            save_checkpoint({
-                'epoch': epoch + 1,
-                'arch': args.arch,
-                'state_dict': model.state_dict(),
-                'best_acc1': best_acc1,
-                'optimizer': optimizer.state_dict(),
-            }, False, file_name)
+            architecture = args.custom_model if args.custom_model is not None else args.arch
+            save_checkpoint(model, epoch, architecture, best_acc1, optimizer, file_name)
 
             batch_num = i + epoch * len(train_loader)
             writer.add_scalar('train/loss', losses.val, batch_num)
@@ -518,11 +499,24 @@ def validate(val_loader, model, criterion, args, writer=None, epoch=None):
     return top1.avg
 
 
-def save_checkpoint(state, is_best, filename='checkpoint.pth.tar', best_filename='model_best.pth.tar', old_format=True):
+def save_checkpoint(model, epoch, architecture, best_acc1=0.0, optimizer=None,
+                    filename='checkpoint.pth.tar', old_format=True):
+    state_dict = {
+        'epoch': epoch + 1,
+        'arch': architecture,
+        'state_dict': model.state_dict(),
+        'best_acc1': best_acc1}
+    if optimizer is not None:
+        state_dict['optimizer']= optimizer.state_dict()
+    if 'customresnet' in architecture.lower():
+        # get parallel/non parallel model
+        actual_model = get_actual_model(model)
+        # get channels config when training custom resnet directly or wrapped
+        state_dict['channels_config'] = actual_model.net.channels_config if hasattr(actual_model, 'net') \
+            else actual_model.channels_config
+
     # check if version is 1.6.0 or above
-    save_version_aware(state, filename, old_format)
-    if is_best:
-        shutil.copyfile(filename, best_filename)
+    save_version_aware(state_dict, filename, old_format)
 
 
 class AverageMeter(object):
