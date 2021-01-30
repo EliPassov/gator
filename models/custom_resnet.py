@@ -1,7 +1,13 @@
+import torch
 from torch import nn
 from torchvision.models.resnet import ResNet, BasicBlock, Bottleneck, conv1x1, conv3x3, resnet18, resnet34, resnet50
 
 from models.cifar_resnet import CifarResnet
+
+
+def unmatched_channels_addition(x, y):
+    y_new = torch.cat([y, torch.zeros((y.size(0), x.size(1)-y.size(1), y.size(2), y.size(3)), device=y.device)], 1)
+    return x + y_new
 
 
 class CustomBasicBlock(BasicBlock):
@@ -21,6 +27,30 @@ class CustomBasicBlock(BasicBlock):
         self.bn2 = norm_layer(conv2_out)
         self.downsample = downsample
         self.stride = stride
+        # output channels of last conv don't match shortcut channels
+        self.unmatched_addition = (downsample is not None and downsample[0].out_channels > self.conv2.out_channels) or \
+                                  (downsample is None and in_channels > conv2_out)
+
+    def forward(self, x):
+        identity = x
+
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+
+        out = self.conv2(out)
+        out = self.bn2(out)
+
+        if self.downsample is not None:
+            identity = self.downsample(x)
+
+        if self.unmatched_addition:
+            out = unmatched_channels_addition(identity, out)
+        else:
+            out += identity
+        out = self.relu(out)
+
+        return out
 
 
 class CustomBottleNeck(Bottleneck):
@@ -40,6 +70,34 @@ class CustomBottleNeck(Bottleneck):
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
         self.stride = stride
+        # output channels of last conv don't match shortcut channels
+        self.unmatched_addition = (downsample is not None and downsample[0].out_channels > self.conv3.out_channels) or \
+                                  (downsample is None and in_channels > conv3_out)
+
+    def forward(self, x):
+        identity = x
+
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.relu(out)
+
+        out = self.conv3(out)
+        out = self.bn3(out)
+
+        if self.downsample is not None:
+            identity = self.downsample(x)
+
+        if self.unmatched_addition:
+            out = unmatched_channels_addition(identity, out)
+        else:
+            out += identity
+        out = self.relu(out)
+
+        return out
 
 
 class CustomResNet(ResNet):
@@ -77,7 +135,7 @@ class CustomResNet(ResNet):
         else:
             self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
 
-        self.prev_block_out = first_channels
+        self.shortcut_channels = first_channels
         self.current_channel = 0
 
         # the 64, 128, 256, 512 input is ignored and only kept for similarity for original code
@@ -89,7 +147,7 @@ class CustomResNet(ResNet):
         else:
             self.layer4 = self._make_layer_custom(block, channels_config['layer4'], stride=2, dilate=replace_stride_with_dilation[2])
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(self.prev_block_out, num_classes)
+        self.fc = nn.Linear(self.shortcut_channels, num_classes)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -109,10 +167,9 @@ class CustomResNet(ResNet):
                     nn.init.constant_(m.bn2.weight, 0)
 
     def get_and_check_channels(self, num_channels, block_config):
-        channels = [self.prev_block_out]
+        channels = []
         for i in range(1, num_channels + 1):
             channels.append(block_config['conv' + str(i)])
-        self.prev_block_out = channels[-1]
         return channels
 
     def _make_layer_custom(self, block, layer_config, stride=1, dilate=False):
@@ -126,22 +183,24 @@ class CustomResNet(ResNet):
             self.dilation *= stride
             stride = 1
         if stride != 1 or block == CustomBottleNeck:
-            downsample_out_channels =  layer_config['0']['conv'+str(num_convs)]
-            # downsample_out_channels =  layer_config['0']['downsample']
+            if 'downsample' in layer_config['0']:
+                downsample_out_channels = layer_config['0']['downsample']
+            else:
+                downsample_out_channels = layer_config['0']['conv'+str(num_convs)]
             downsample = nn.Sequential(
-                conv1x1(self.prev_block_out, downsample_out_channels, stride),
+                conv1x1(self.shortcut_channels, downsample_out_channels, stride),
                 norm_layer(downsample_out_channels),
             )
 
         if '0' in block_indices:
             channels = self.get_and_check_channels(num_convs, layer_config['0'])
-            blocks.append((0, block(*channels, stride, downsample, self.groups, previous_dilation, norm_layer)))
-            self.prev_block_out = channels[-1]
+            blocks.append((0, block(self.shortcut_channels, *channels, stride, downsample, self.groups, previous_dilation, norm_layer)))
+            self.shortcut_channels = downsample_out_channels
             block_indices.remove('0')
         # iterate on indices which have not been removed (whole blocks pruned)
         for block_index in block_indices:
             channels = self.get_and_check_channels(num_convs, layer_config[str(block_index)])
-            blocks.append((block_index, block(*channels, groups=self.groups, dilation=self.dilation, norm_layer=norm_layer)))
+            blocks.append((block_index, block(self.shortcut_channels, *channels, groups=self.groups, dilation=self.dilation, norm_layer=norm_layer)))
 
         result = nn.Sequential()
         for block_index, block_module in blocks:
