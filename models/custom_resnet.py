@@ -127,6 +127,7 @@ class CustomResNet(ResNet):
             stride = 1
         if stride != 1 or block == CustomBottleNeck:
             downsample_out_channels =  layer_config['0']['conv'+str(num_convs)]
+            # downsample_out_channels =  layer_config['0']['downsample']
             downsample = nn.Sequential(
                 conv1x1(self.prev_block_out, downsample_out_channels, stride),
                 norm_layer(downsample_out_channels),
@@ -179,7 +180,7 @@ class CustomResNet(ResNet):
 
         if include_fc:
             fc_cost = self.fc.in_features * self.fc.out_features
-            flops_cost += fc_cost / (224**2)
+            flops_cost += fc_cost / ((32 if self.cifar_resnet else 224) **2)
             memory_cost += fc_cost
 
         return flops_cost, memory_cost
