@@ -63,9 +63,9 @@ parser.add_argument('-b', '--batch-size', default=256, type=int,
                          'using Data Parallel or Distributed Data Parallel')
 parser.add_argument('--lr', '--learning-rate', default=0.1, type=float,
                     metavar='LR', help='initial learning rate', dest='lr')
-parser.add_argument('--lr-drop-rate', default=0.1, type=float, help='learning rate drop multiplier',
+parser.add_argument('--lr-drop-rate', default=None, type=float, help='learning rate drop multiplier',
                     dest='lr_drop_rate')
-parser.add_argument('--epoch-lr-step', default=30, type=float, help='num of epochs before learning rate drop',
+parser.add_argument('--epoch-lr-step', default=None, type=float, help='num of epochs before learning rate drop',
                     dest='epoch_lr_step')
 parser.add_argument('--lr_steps', type=str,
                     help='epochs at which to drop the learning rate')
@@ -575,11 +575,14 @@ def adjust_learning_rate(optimizer, epoch, args):
 
 def adjust_learning_rate_and_get_batch_adjuster(optimizer, epoch, args):
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
-    lr = args.lr * (args.lr_drop_rate ** (epoch // args.epoch_lr_step))
+    lr = args.lr
+    if args.lr_drop_rate is not None:
+        assert args.epoch_lr_step is not None
+        lr = args.lr * (args.lr_drop_rate ** (epoch // args.epoch_lr_step))
     adjust_lr_in_optimizer(optimizer, lr)
     lr_batch_adjuster = None
     # create batch adjuster if the step is not round
-    if args.epoch_lr_step - int(args.epoch_lr_step) > 1e-10:
+    if args.lr_drop_rate is not None and  args.epoch_lr_step - int(args.epoch_lr_step) > 1e-10:
         leftover_epoch_residual = (epoch + 1)  % args.epoch_lr_step
         if 1e-10 < leftover_epoch_residual < (1-1e-10):
             lr_batch_adjuster = lambda inner_optimizer, batch_percentage: \
