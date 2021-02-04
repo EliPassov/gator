@@ -195,7 +195,8 @@ class CustomResNet(ResNet):
         if '0' in block_indices:
             channels = self.get_and_check_channels(num_convs, layer_config['0'])
             blocks.append((0, block(self.shortcut_channels, *channels, stride, downsample, self.groups, previous_dilation, norm_layer)))
-            self.shortcut_channels = downsample_out_channels
+            if downsample is not None:
+                self.shortcut_channels = downsample_out_channels
             block_indices.remove('0')
         # iterate on indices which have not been removed (whole blocks pruned)
         for block_index in block_indices:
