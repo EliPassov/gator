@@ -65,55 +65,38 @@ imagenet_transforms_test = transforms.Compose([
         normalize,
     ])
 
-def get_train_test_datasets(args):
+def get_train_test_datasets(args, is_train=True):
+    train_dataset = None
     if args.dataset_name == 'imagenet':
-        train_dataset = ImageFolder(args.train_data_path, imagenet_transforms_train)
+        if is_train:
+            train_dataset = ImageFolder(args.train_data_path, imagenet_transforms_train)
         test_dataset = ImageFolder(args.val_data_path, imagenet_transforms_test)
     elif args.dataset_name[:5] =='cifar':
         cifar_type = int(args.dataset_name[5:])
-        train_dataset = CIFARDataset(args.train_data_path, cifar_transform_train, True, cifar_type)
+        if is_train:
+            train_dataset = CIFARDataset(args.train_data_path, cifar_transform_train, True, cifar_type)
         test_dataset = CIFARDataset(args.val_data_path, cifar_transform_test, False, cifar_type)
     elif args.dataset_name =='pets':
-        train_dataset = PetsDataset(args.train_data_path, train_data_transform, True)
+        if is_train:
+            train_dataset = PetsDataset(args.train_data_path, train_data_transform, True)
         test_dataset = PetsDataset(args.val_data_path, test_data_transform, False)
     elif args.dataset_name == 'food':
-        train_dataset = FolderPerClassFilePathDataset(args.train_data_path, train_data_transform, True)
+        if is_train:
+            train_dataset = FolderPerClassFilePathDataset(args.train_data_path, train_data_transform, True)
         test_dataset = FolderPerClassFilePathDataset(args.val_data_path, test_data_transform, False)
     elif args.dataset_name == 'stl10':
-        train_dataset = FolderPerClassFilePathDataset(args.train_data_path, stl_train_data_transform, True)
+        if is_train:
+            train_dataset = FolderPerClassFilePathDataset(args.train_data_path, stl_train_data_transform, True)
         test_dataset = FolderPerClassFilePathDataset(args.val_data_path, stl_test_data_transform, False)
     else:
         raise ValueError('Unknown dataset_name')
-    if args.distributed:
+
+    if is_train and args.distributed:
         train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
     else:
         train_sampler = None
 
     return train_dataset, test_dataset, train_sampler
-
-
-def get_eval_dataset(dataset_name, val_data_path, ensemble_transform=None):
-    if dataset_name[:5] =='cifar':
-        cifar_type = int(dataset_name[5:])
-        dataset_class = partial(CIFARDataset, is_train=False, cifar_type=cifar_type)
-        dataset_transforms = cifar_transform_test
-    elif dataset_name =='pets':
-        dataset_class = partial(PetsDataset, is_train=False)
-        dataset_transforms = test_data_transform
-    elif dataset_name == 'food':
-        dataset_class = partial(FolderPerClassFilePathDataset, is_train = False)
-        dataset_transforms = test_data_transform
-    elif dataset_name == 'stl10':
-        dataset_class = partial(FolderPerClassFilePathDataset, is_train = False)
-        dataset_transforms = stl_test_data_transform
-    else:
-        raise ValueError('Unknown dataset_name')
-    if ensemble_transform is not None:
-        assert ensemble_transform in ['ten_crop', 'flip']
-        dataset_transforms = ENSEMBLE_TRANSFORMS[ensemble_transform](dataset_transforms, dataset_name)
-    test_dataset = dataset_class(val_data_path, dataset_transforms)
-
-    return test_dataset
 
 
 TEN_CROP_SHAPE_MAP = {
