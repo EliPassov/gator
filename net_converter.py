@@ -7,6 +7,7 @@ from models.cifar_resnet import resnet56
 from models.custom_resnet import custom_resnet_50, custom_resnet_56
 
 from models.wrapped_gated_models import custom_resnet_from_gated_net, pruned_custom_net_from_gated_net
+from utils.save_warpper import save_version_aware
 
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
@@ -25,9 +26,22 @@ parser.add_argument('--gating_config_path_for_gate_max_probs', type=str, default
                     help = 'config to pick gate_init_prob from for max probability for gate to clamp the weight in case it is too high')
 parser.add_argument('--new_format', action='store_true', default=False,
                     help='Use new pytorch save format if version is relevant')
+parser.add_argument('--remove_optimizer', action='store_true', default=False,
+                    help = 'remove optimizer weight from state dictionary')
+
 
 if __name__ == '__main__':
     args = parser.parse_args()
+
+    if args.remove_optimizer:
+        state_dict = torch.load(args.gated_weights_path)
+        if 'optimizer' in state_dict:
+            del state_dict['optimizer']
+        save_version_aware(state_dict, args.new_weights_path, old_format= not args.new_format)
+        print('Saving weights without optimizer')
+        exit(0)
+
+
     if 'CustomResNet' in args.net_name:
         assert args.gated_weights_path is not None
         channels_config = torch.load(args.gated_weights_path)['channels_config']
