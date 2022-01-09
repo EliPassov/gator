@@ -22,16 +22,10 @@ import torch.utils.data.distributed
 import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
-from tensorboardX import SummaryWriter
 
 from data.dataset_factory import get_train_test_datasets
-from external_models.dcp.pruned_resnet import PrunedResnet30, PrunedResnet50, PrunedResnet70
 from models.cifar_resnet import *
 from models.custom_resnet import custom_resnet_50, custom_resnet_56
-from models.vgg_fully_convolutional import *
-from models.wrapped_gated_models import *
-from utils.multi_optimizer import MultiGroupDynamicLROptimizer
-from utils.save_warpper import save_version_aware
 
 
 model_names = sorted(name for name in models.__dict__
@@ -289,26 +283,6 @@ def validate(val_loader, model, criterion, args, writer=None, epoch=None):
             writer.add_scalar('eval/top5', top5.avg, epoch + 1)
 
     return top1.avg
-
-
-def save_checkpoint(model, epoch, architecture, best_acc1=0.0, optimizer=None,
-                    filename='checkpoint.pth.tar', old_format=True):
-    state_dict = {
-        'epoch': epoch + 1,
-        'arch': architecture,
-        'state_dict': model.state_dict(),
-        'best_acc1': best_acc1}
-    if optimizer is not None:
-        state_dict['optimizer']= optimizer.state_dict()
-    if 'customresnet' in architecture.lower():
-        # get parallel/non parallel model
-        actual_model = get_actual_model(model)
-        # get channels config when training custom resnet directly or wrapped
-        state_dict['channels_config'] = actual_model.net.channels_config if hasattr(actual_model, 'net') \
-            else actual_model.channels_config
-
-    # check if version is 1.6.0 or above
-    save_version_aware(state_dict, filename, old_format)
 
 
 class AverageMeter(object):

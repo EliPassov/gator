@@ -9,6 +9,7 @@ from torchvision.transforms.functional import hflip
 from data.image import Rescale, normalize
 from .dataset import CIFARDataset, PetsDataset, FolderPerClassFilePathDataset
 
+
 base_data_transform = transforms.Compose([
     Rescale((224, 224)),
     transforms.ToTensor(),
