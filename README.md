@@ -1,29 +1,71 @@
 # README #
 
-This README would normally document whatever steps are necessary to get your application up and running.
+GATOR is a deep neural network global channel pruning method utilizing chanel hard gating to find which channels to prune based on user defined criteria. Criteria is defined via individual weights on each layer, which can represent optimization on FLOPS, Memory or latency, enabling customizing pruning for specific hardware. 
 
-### What is this repository for? ###
+For more information please refer to the article: 
+[Gator: Customizable Channel Pruning of Neural Networks with Gating](https://link.springer.com/chapter/10.1007/978-3-030-86380-7_5)
 
-* Quick summary
-* Version
-* [Learn Markdown](https://bitbucket.org/tutorials/markdowndemo)
+### Supported Architectures ###
 
-### How do I get set up? ###
+Current code supports Sequential networks (E.g. VGG) and ResNet style networks. For other types of networks, the interface GatesModulesMapper which maps the network's structure, enabling proper computation of costs, needs to be implemented. 
 
-* Summary of set up
-* Configuration
-* Dependencies
-* Database configuration
-* How to run tests
-* Deployment instructions
+Integration of frameworks which scan the network architecture (e.g. ONNX) might be implemented in the future. Any contributor willing to take this task upon himself is more then welcome and will have the author's support and gratitude.
 
-### Contribution guidelines ###
 
-* Writing tests
-* Code review
-* Other guidelines
+### Installation ###
+
+- Install PyTorch ([pytorch.org](http://pytorch.org))
+- `pip install -r requirements.txt`
+
+For training:
+- Download the ImageNet dataset from http://www.image-net.org/
+  - For arranging the images, consider using [the following shell script](https://raw.githubusercontent.com/soumith/imagenetloader.torch/master/valprep.sh) from [pytorch/examples/imagenet](https://github.com/pytorch/examples/tree/master/imagenet).
+  
+
+### Training ###
+
+main.py is running the pruning training. For the default parameters setup, it is based on the implementation of [pytorch/examples/imagenet](https://github.com/pytorch/examples/tree/master/imagenet).
+
+#### training parameters ####
+
+* For network training configurations, follow the [train instructions](https://github.com/pytorch/examples/tree/master/imagenet#training) to configure all training parameters
+
+Gator related parameters:
+* subdivision: Enables training larger batches **overcoming GPU RAM limitations** by dividing each batch into sub-samples and accumulating the gradient. 
+Yes, this is compatible with multi-GPU training. Note: Similar to simplified multi GPU training, this makes the training identical to one batch in every aspect save for batch normailzation.
+* gating_config_path: Gating configuration in .json format, See examples in /cfg. 
+* net_with_criterion: should be set to ResNet_gating, defines the wrapper which maps the network and performs the pruning
+* custom_model: Optional, a network architecture not defined in pytorch (alternative to --arch configuration option)
+* backup_folder: where to store model backups
+* save_interval: how many epochs to skip between model storage
+
+#### Pruning Gating Configuration ####
+
+Details for the gating configuration
+
+* factor_type: type of weights factor applied based on computation of the weights, currently only supporting : flop_factor / memmory_factor. Note that current implementation requires adjusting one of those, e.g. for latency use multipliers to enhance or reduce relevant factors.
+* criteria_weight: pruning loss multiplier (weight of the loss compared to main loss)
+* gradient_multiplier: global multiplier effecting gradients on pruning gates weights, acts as a learning rate multiplier for the global learning rate
+* gate_init_prob: The probability for a gate to pass, recommended to set close to 1, as lower values produces less desirable results in tests (but can be studied further especially in more NAS scenarios rather than pruning)
+* static_total_cost: Static divisor of each individual gate weight, by default (if set to none in the config) set to the sum of all flops/memory used based on criteria. It has the same way as the gradient_multiplier, and is used to normalize the total sum to 1. 
+* edge_multipliers: custom weights to adjust the default weights given the factor_type
+
+#### Custom Weights Pruning Network ####
+
+As mentioned, for cust om pruning weights, current implementation uses multipliers on top of the flops/memory weights computed for the network to customize them for latency and other optimization considerations. 
+
+For latency pruning we computed the weight of each hyper graph edge (layer in most cases) by timing running the network with the same edge having 1/2 of its channel, and also computing the equivalent flops reduction.
+The results of this computation for ResNet50 can be found in  in results/timinig_resnet_50_edges_7_runs_batch_32.csv. From these results the adjustment weights were computed and stored in cfg/resnet_50_flops_rel_timing_config_batch_32.json.
+
+A notebook for timing and computing the weights can be found in analysis/time_nets.ipynb.
+
+
+### converting pruned network ###
+
+run net_convert.py for removing pruned channels and creating a de-facto pruned network. Note this requires a module class definition of the pruned network. For ResNet we have defined CustomResNet.
+
+
 
 ### Who do I talk to? ###
 
-* Repo owner or admin
-* Other community or team contact
+* If you have any questions or comments you are welcome to contact [Eli Passov](mailto:elipassov@gmail.com?subject[GitHub]Gator)
