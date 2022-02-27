@@ -222,6 +222,7 @@ class ResNetGatesModulesMapper(GatesModulesMapper):
                 del self.hyper_edges_map[conv_and_side]
 
     def map_modules_for_replacement(self):
+        """ Optional experimental method for creating referencing between original and replacement blocks """
         self.replacement_map = {}
         self.replacement_map[self.net.conv1] = ReferenceToSetter(self.net, 'conv1')
         self.replacement_map[self.net.bn1] = ReferenceToSetter(self.net, 'bn1')
@@ -243,6 +244,7 @@ class ResNetGatesModulesMapper(GatesModulesMapper):
         self.replacement_map[self.net.fc] = ReferenceToSetter(self.net, 'fc')
 
     def apply_replacement(self, module, new_module, print_replacements=False):
+        """ Experimental method for applying replacement of blocks based on mapping"""
         assert self.replacement_map is not None, "Mapper needs to be instantiated with map_for_replacement=True"
         replace_key(self.conv_info, module, new_module, not isinstance(module, nn.Conv2d))
         replace_binary_second_tuple_key(self.alias_map, module, new_module, True)

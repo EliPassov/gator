@@ -42,7 +42,7 @@ def create_wrapped_net(net, mapper, gradient_multiplier=1.0, adaptive=True,
     hooks = []
     auxiliary_criteria = []
 
-    # get static total cost if it wasn't predefined (to be used by custom resnet which was pruned
+    # get static total cost if it wasn't predefined (to be used by custom resnet which was pruned)
     if static_total_cost is None:
         static_total_cost = getattr(mapper, factor_type.replace('factor', 'cost'))
     # create all gate modules
