@@ -1,18 +1,21 @@
 # README #
 
-GATOR is a deep neural network global channel pruning method utilizing chanel hard gating to find which channels to prune based on user defined criteria. Criteria is defined via individual weights on each layer, which can represent optimization on FLOPS, Memory or latency, enabling customizing pruning for specific hardware. 
+GATOR is a deep neural network global channel pruning method utilizing channel hard gating to find which channels to prune based on user defined criteria. 
+Criteria is defined via individual weights on each layer, which can represent optimization on FLOPS, Memory or latency, enabling customizing pruning for specific hardware.
+While the code is designed for pruning image classification networks, it can be adapted to prune other types of networks.
 
 For more information please refer to the article: 
 [Gator: Customizable Channel Pruning of Neural Networks with Gating](https://link.springer.com/chapter/10.1007/978-3-030-86380-7_5)
 
-### Supported Architectures ###
+## Supported Architectures ##
 
-Current code supports Sequential networks (E.g. VGG) and ResNet style networks. For other types of networks, the interface GatesModulesMapper which maps the network's structure, enabling proper computation of costs, needs to be implemented. 
+Current code supports Sequential networks (E.g. VGG) and ResNet style networks. 
+For other types of networks, implementation of the interface GatesModulesMapper, which maps the network's structure for computation of channel pruning costs, is required. 
 
-Integration of frameworks which scan the network architecture (e.g. ONNX) might be implemented in the future. Any contributor willing to take this task upon himself is more then welcome and will have the author's support and gratitude.
+Integration of frameworks which scan the network architecture (e.g. ONNX) might be implemented in the future. Any contributor willing to take this task is more than welcome and will have the author's support and gratitude.
 
 
-### Installation ###
+## Installation ##
 
 - Install PyTorch ([pytorch.org](http://pytorch.org))
 - `pip install -r requirements.txt`
@@ -22,20 +25,45 @@ For training:
   - For arranging the images, consider using [the following shell script](https://raw.githubusercontent.com/soumith/imagenetloader.torch/master/valprep.sh) from [pytorch/examples/imagenet](https://github.com/pytorch/examples/tree/master/imagenet).
   
 
-### Training ###
+## eval / inference ##
+
+To run inference using a pruned net, you 
+
+Pruned Resnet 50 weights are available [here](https://drive.google.com/drive/folders/19q7v8cLAFdRV2K-ezFSzWpjxASi6mtB_?usp=sharing)
+
+Example config:
+```shell
+python evaluate.py --val_data_path [images path] --backup_folder [path] --custom_model CustomResNet50 --batch-size 32 --resume [net weights path] --evaluate
+```
+
+
+## Training ##
 
 main.py is running the pruning training. For the default parameters setup, it is based on the implementation of [pytorch/examples/imagenet](https://github.com/pytorch/examples/tree/master/imagenet).
 
-#### training parameters ####
+### Example training configs ###
+
+#### training ####
+```shell
+python main.py --train_data_path [imagent train path] --val_data_path [imagenet val path] --backup_folder [path] -a resnet50 --net_with_criterion ResNet50_gating --epochs 30 --lr 0.01 --epoch-lr-step 20 --pretrained --multiprocessing-distributed --dist-url tcp://127.0.0.1:23456 --world-size 1 --rank 0 --subdivision 4 --gating_config_path cfg/resnet_50_flops_config.json
+```
+
+#### resume training ####
+```shell
+python main.py --train_data_path [imagent train path] --val_data_path [imagenet val path] --backup_folder [path] --custom_model CustomResNet50 --epochs 130 --lr 0.0001 --epoch-lr-step 125 --resume [model path] --multiprocessing-distributed --dist-url tcp://127.0.0.1:23456 --world-size 1 --rank 0 --subdivision 4
+```
+
+### training parameters ###
 
 * For network training configurations, follow the [train instructions](https://github.com/pytorch/examples/tree/master/imagenet#training) to configure all training parameters
 
-Gator related parameters:
+### Gator related parameters ###
 * subdivision: Enables training larger batches **overcoming GPU RAM limitations** by dividing each batch into sub-samples and accumulating the gradient. 
 Yes, this is compatible with multi-GPU training. Note: Similar to simplified multi GPU training, this makes the training identical to one batch in every aspect save for batch normailzation.
 * gating_config_path: Gating configuration in .json format, See examples in /cfg. 
 * net_with_criterion: should be set to ResNet_gating, defines the wrapper which maps the network and performs the pruning
 * custom_model: Optional, a network architecture not defined in pytorch (alternative to --arch configuration option)
+Note: This is required for loading and converting any pruned network.
 * backup_folder: where to store model backups
 * save_interval: how many epochs to skip between model storage
 
@@ -60,12 +88,15 @@ The results of this computation for ResNet50 can be found in  in results/timinig
 A notebook for timing and computing the weights can be found in analysis/time_nets.ipynb.
 
 
-### converting pruned network ###
+## converting pruned network ##
 
 run net_convert.py for removing pruned channels and creating a de-facto pruned network. Note this requires a module class definition of the pruned network. For ResNet we have defined CustomResNet.
 
+```shell
+python net_converter.py --net_with_criterion ResNet_gating --net_name CustomResNet50 --gated_weights_path [path to model] --new_weights_path [path to new model]
+```
 
 
-### Who do I talk to? ###
+## Who do I talk to? ##
 
 * If you have any questions or comments you are welcome to contact [Eli Passov](mailto:elipassov@gmail.com?subject[GitHub]Gator)
