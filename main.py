@@ -302,8 +302,8 @@ def main_worker(gpu, ngpus_per_node, args):
                 warnings.warn('Loading al stated dict, no other metadata in checkpoint !!!')
             else:
                 state_dict = checkpoint['state_dict']
-                # if args.gpu is not None and len(state_dict) == len([k for k in state_dict.keys() if k[:7] == 'module.']):
-                # state_dict = {k[7:]: v for k, v in state_dict.items()}
+                if args.gpu is not None and len(state_dict) == len([k for k in state_dict.keys() if k[:7] == 'module.']):
+                    state_dict = {k[7:]: v for k, v in state_dict.items()}
                 # state_dict = {k.replace('module.net', 'module'): v for k, v in state_dict.items()}
                 if args.net_with_criterion is not None and type(get_actual_model(model).net) in [CifarResnet, ResNet]:
                     state_dict = {k.replace('module', 'module.net'): v for k, v in state_dict.items()}
@@ -330,16 +330,19 @@ def main_worker(gpu, ngpus_per_node, args):
 
     cudnn.benchmark = True
 
-    train_dataset, val_dataset, train_sampler = get_train_test_datasets(args)
+    is_train = not args.evaluate
 
-    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
-                                               shuffle=(train_sampler is None), num_workers=args.workers,
-                                               pin_memory=True, sampler=train_sampler)
+    train_dataset, val_dataset, train_sampler = get_train_test_datasets(args, is_train=is_train)
+
+    if is_train:
+        train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size,
+                                                   shuffle=(train_sampler is None), num_workers=args.workers,
+                                                   pin_memory=True, sampler=train_sampler)
 
     val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=args.batch_size, shuffle=False,
                                              num_workers=args.workers, pin_memory=True)
 
-    if args.evaluate:
+    if not is_train:
         validate(val_loader, model, criterion, args)
         return
 
