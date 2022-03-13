@@ -25,16 +25,19 @@ For training:
   - For arranging the images, consider using [the following shell script](https://raw.githubusercontent.com/soumith/imagenetloader.torch/master/valprep.sh) from [pytorch/examples/imagenet](https://github.com/pytorch/examples/tree/master/imagenet).
   
 
-## eval / inference ##
+## Eval ##
 
-To run inference using a pruned net, you 
-
-Pruned Resnet 50 weights are available [here](https://drive.google.com/drive/folders/19q7v8cLAFdRV2K-ezFSzWpjxASi6mtB_?usp=sharing)
-
-Example config:
+Use main.py to run evaluation, example config:
 ```shell
-python evaluate.py --val_data_path [images path] --backup_folder [path] --custom_model CustomResNet50 --batch-size 32 --resume [net weights path] --evaluate
+python main.py --evaluate --val_data_path [images path] --backup_folder [path] --custom_model CustomResNet50 --batch-size 32 --resume [net weights path] --evaluate
 ```
+
+## Inference (using pruned networks) ##
+
+A pruned network requires a proper class definition. For ResNet, the _CustomResNet_ class is available.
+
+Pruned Resnet 50 weights optimized for FLOPS and for latency are available [here](https://drive.google.com/drive/folders/19q7v8cLAFdRV2K-ezFSzWpjxASi6mtB_?usp=sharing)
+
 
 
 ## Training ##
