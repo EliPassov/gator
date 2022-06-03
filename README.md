@@ -5,7 +5,7 @@ Criteria is defined via individual weights on each layer, which can represent op
 While the code is designed for pruning image classification networks, it can be adapted to prune other types of networks.
 
 For more information please refer to the article: 
-[Gator: Customizable Channel Pruning of Neural Networks with Gating](https://link.springer.com/chapter/10.1007/978-3-030-86380-7_5)
+[Gator: Customizable Channel Pruning of Neural Networks with Gating](https://arxiv.org/abs/2205.15404)
 
 ## Supported Architectures ##
 
